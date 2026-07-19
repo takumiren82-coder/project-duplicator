@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { AccessProvider } from "../lib/access-context";
 
 function NotFoundComponent() {
   return (
@@ -77,21 +78,31 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "The Nealth Ecosystem — Read Articles" },
+      { name: "description", content: "Curated study articles by Author Amala — strategy, focus, memory and revision." },
+      { name: "author", content: "The Nealth Ecosystem" },
+      { property: "og:title", content: "The Nealth Ecosystem — Read Articles" },
+      { property: "og:description", content: "Curated study articles by Author Amala — strategy, focus, memory and revision." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "The Nealth Ecosystem — Read Articles" },
+      { name: "twitter:description", content: "Curated study articles by Author Amala — strategy, focus, memory and revision." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/sNrwAbb7EJPJi18ndXblczVn6ku1/social-images/social-1784164788468-90145.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/sNrwAbb7EJPJi18ndXblczVn6ku1/social-images/social-1784164788468-90145.webp" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Manrope:wght@300;400;500;600;700&family=Cinzel:wght@400;500;600;700;800&family=Lato:wght@300;400;700;900&display=swap",
+      },
+      { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
     ],
   }),
   shellComponent: RootShell,
@@ -119,8 +130,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <AccessProvider>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </AccessProvider>
     </QueryClientProvider>
   );
 }

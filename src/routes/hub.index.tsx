@@ -1,0 +1,1079 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Send, ArrowLeft, Phone, Video, Copy, Check, CheckCheck, X, Smile, Mic, MoreVertical } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { BottomNav } from "@/components/BottomNav";
+import { AttachSheet, type ViewChoice } from "@/components/AttachSheet";
+import { EmojiPicker } from "@/components/EmojiPicker";
+import { CameraCapture } from "@/components/CameraCapture";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
+import { CallOverlay } from "@/components/CallOverlay";
+import { MediaBubble } from "@/components/MediaBubble";
+import { decodeMedia, encodeMedia, fileToDataUrl, isMedia, type MediaPayload } from "@/lib/media-msg";
+import { broadcastDp, cacheDp, decodeDp, isDp, readCachedDp, uploadDp } from "@/lib/dp";
+import {
+  DEL_MARK,
+  addDeletedForMe,
+  encodeReply,
+  extractReply,
+  getDeletedForMe,
+  isDeleted,
+  previewOf,
+  type ReplyRef,
+} from "@/lib/msg-meta";
+import { MessageActionSheet } from "@/components/MessageActionSheet";
+
+export const Route = createFileRoute("/hub/")({
+  validateSearch: (s: Record<string, unknown>): { chat?: "1" } => ({
+    chat: s.chat === "1" ? "1" : undefined,
+  }),
+  component: PrivateHub,
+});
+
+interface Message {
+  id: string;
+  room_code: string;
+  sender: string;
+  content: string;
+  created_at: string;
+  read_at?: string | null;
+}
+
+const ROOM_KEY = "nealth_room_code";
+const NAME_KEY = "nealth_name";
+const UID_KEY = "nealth_uid";
+const JOINED_KEY = "nealth_joined";
+const JOIN_MARK = "\u0001JOIN\u0001"; // hidden presence/name-exchange marker
+
+function genCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+function genId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+// Display any timestamp in Indian Standard Time as "HH:mm" (e.g. 05:59).
+function formatIST(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+// Human "last seen" elapsed label based on IST-accurate wall clock (uses UTC
+// deltas, which are timezone-independent, so this is correct in any locale).
+function formatElapsed(fromMs: number, nowMs: number) {
+  const diff = Math.max(0, Math.floor((nowMs - fromMs) / 1000));
+  if (diff < 10) return "Active now";
+  if (diff < 60) return `Active ${diff}s ago`;
+  const mins = Math.floor(diff / 60);
+  if (mins < 60) return `Active ${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `Active ${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `Active ${days}d ago`;
+}
+
+function PrivateHub() {
+  const navigate = useNavigate();
+  const { chat } = Route.useSearch();
+  const openChat = chat === "1";
+
+  const [myId] = useState(() => {
+    let v = localStorage.getItem(UID_KEY);
+    if (!v) {
+      v = genId();
+      localStorage.setItem(UID_KEY, v);
+    }
+    return v;
+  });
+  const [name, setName] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [room, setRoom] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [text, setText] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const restored = useRef(false);
+  const announced = useRef<string | null>(null);
+  const [savedPartner, setSavedPartner] = useState<string>("");
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const [partnerTyping, setPartnerTyping] = useState(false);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSent = useRef(0);
+  // Media / emoji / camera / voice / call UI state
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState<{ views: ViewChoice } | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [call, setCall] = useState<
+    | { mode: "outgoing"; peerName: string; video: boolean }
+    | { mode: "incoming"; peerName: string; offer: RTCSessionDescriptionInit; video: boolean }
+    | null
+  >(null);
+  const [myDp, setMyDp] = useState<string>("");
+  const [partnerDp, setPartnerDp] = useState<string>("");
+  // Swipe-to-reply + reply preview state
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [swipeId, setSwipeId] = useState<string | null>(null);
+  const [swipeX, setSwipeX] = useState(0);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [actionMsg, setActionMsg] = useState<Message | null>(null);
+  const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
+  // Live "last seen" ticker + last partner activity timestamp (ms).
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [partnerLastActive, setPartnerLastActive] = useState<number>(0);
+
+  // Navigate helpers for the inbox <-> chat room transition (search-param
+  // driven so tapping the Chat tab always returns to the inbox without
+  // remounting the component or resetting any chat state).
+  const openRoom = () => navigate({ to: "/hub", search: { chat: "1" } });
+  const backToInbox = () => navigate({ to: "/hub", search: {} });
+
+  // Tick every second so the "Active Xs ago" label stays live without refresh.
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // restore name + room (room only restored if a name exists)
+  useEffect(() => {
+    const savedName = localStorage.getItem(NAME_KEY);
+    if (savedName) setName(savedName);
+    const savedRoom = localStorage.getItem(ROOM_KEY);
+    if (savedRoom) {
+      setRoom(savedRoom);
+      if (localStorage.getItem(JOINED_KEY) === "1") setJoined(true);
+    }
+  }, []);
+
+  // Load "delete for me" set whenever the room changes.
+  useEffect(() => {
+    if (!room) { setDeletedForMe(new Set()); return; }
+    setDeletedForMe(getDeletedForMe(room));
+  }, [room]);
+
+  // load + subscribe to messages
+  useEffect(() => {
+    if (!room) return;
+    let live = true;
+    (async () => {
+      const { data } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("room_code", room)
+        .order("created_at", { ascending: true });
+      if (live && data) setMessages(data as Message[]);
+    })();
+
+    const channel = supabase
+      .channel(`room:${room}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "messages", filter: `room_code=eq.${room}` },
+        (payload) => {
+          setMessages((prev) => {
+            const m = payload.new as Message;
+            if (!m || !m.id) return prev;
+            if (m.sender !== myId) setPartnerLastActive(Date.now());
+            const i = prev.findIndex((p) => p.id === m.id);
+            if (i === -1) return [...prev, m];
+            const copy = [...prev];
+            copy[i] = m;
+            return copy;
+          });
+        },
+      )
+      .on("broadcast", { event: "typing" }, (payload) => {
+        // Ignore my own typing echoes; only react to the partner.
+        if (payload?.payload?.sender === myId) return;
+        setPartnerTyping(true);
+        setPartnerLastActive(Date.now());
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => setPartnerTyping(false), 3000);
+      })
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      live = false;
+      channelRef.current = null;
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      setPartnerTyping(false);
+      supabase.removeChannel(channel);
+    };
+  }, [room, myId]);
+
+  // announce presence + name once per room
+  useEffect(() => {
+    if (!room || !name) return;
+    if (announced.current === room) return;
+    announced.current = room;
+    supabase
+      .from("messages")
+      .insert({ room_code: room, sender: myId, content: JOIN_MARK + name });
+  }, [room, name, myId]);
+
+  // Reset scroll-restore flag whenever we leave the chat room so re-entry
+  // restores the saved position instead of jumping.
+  useEffect(() => {
+    if (!openChat) restored.current = false;
+  }, [openChat]);
+
+  // Restore scroll position when entering the chat room; otherwise jump to
+  // newest. New incoming messages scroll smoothly to the bottom.
+  useEffect(() => {
+    if (!openChat) return;
+    if (!scrollRef.current || messages.length === 0) return;
+    if (!restored.current) {
+      restored.current = true;
+      const saved = room ? sessionStorage.getItem(`nealth_scroll_${room}`) : null;
+      if (saved !== null) {
+        scrollRef.current.scrollTop = Number(saved);
+      } else {
+        endRef.current?.scrollIntoView({ behavior: "auto" });
+      }
+    } else {
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, room, openChat]);
+
+  const handleScroll = () => {
+    if (scrollRef.current && room) {
+      sessionStorage.setItem(`nealth_scroll_${room}`, String(scrollRef.current.scrollTop));
+    }
+  };
+
+  // mark partner messages as read when I'm actively viewing the chat room
+  useEffect(() => {
+    if (!room || !openChat) return;
+    const unread = messages.filter(
+      (m) =>
+        m.sender !== myId &&
+        !m.read_at &&
+        !m.content.startsWith(JOIN_MARK) &&
+        !isDp(m.content) &&
+        !isDeleted(m.content) &&
+        !deletedForMe.has(m.id),
+    );
+    if (unread.length === 0) return;
+    supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .in(
+        "id",
+        unread.map((m) => m.id),
+      )
+      .then(({ error }) => {
+        if (error) console.error("Mark read failed:", error.message);
+      });
+  }, [messages, room, myId, openChat]);
+
+  // derive partner presence + name from join markers / any partner message
+  const { partnerPresent, partnerName, visibleMessages } = useMemo(() => {
+    let present = false;
+    let pName = "";
+    const visible: Message[] = [];
+    for (const m of messages) {
+      const isJoin = m.content.startsWith(JOIN_MARK);
+      const dpMsg = isDp(m.content);
+      if (m.sender !== myId) {
+        present = true;
+        if (isJoin) {
+          const n = m.content.slice(JOIN_MARK.length).trim();
+          if (n) pName = n;
+        }
+      }
+      if (!isJoin && !dpMsg && !deletedForMe.has(m.id)) visible.push(m);
+    }
+    return { partnerPresent: present, partnerName: pName, visibleMessages: visible };
+  }, [messages, myId, deletedForMe]);
+
+  // Persist the partner's real name per-room so it shows immediately on
+  // return (tab switch / remount) instead of falling back to "Partner".
+  useEffect(() => {
+    if (room) setSavedPartner(localStorage.getItem(`nealth_partner_${room}`) ?? "");
+  }, [room]);
+  useEffect(() => {
+    if (room && partnerName) {
+      localStorage.setItem(`nealth_partner_${room}`, partnerName);
+      setSavedPartner(partnerName);
+    }
+  }, [room, partnerName]);
+  const displayName = partnerName || savedPartner || "Partner";
+
+  // Restore cached DPs immediately so avatars show on reload before
+  // realtime messages sync.
+  useEffect(() => {
+    if (!room) return;
+    setMyDp(readCachedDp(room, myId));
+  }, [room, myId]);
+
+  // Derive the latest DP for me and the partner from messages. An empty
+  // URL means "removed" so we clear cache too.
+  useEffect(() => {
+    if (!room) return;
+    let mine = "";
+    let theirs = "";
+    let mineFound = false;
+    let theirsFound = false;
+    for (const m of messages) {
+      if (!isDp(m.content)) continue;
+      const url = decodeDp(m.content);
+      if (m.sender === myId) {
+        mine = url;
+        mineFound = true;
+      } else {
+        theirs = url;
+        theirsFound = true;
+      }
+    }
+    if (mineFound) {
+      setMyDp(mine);
+      cacheDp(room, myId, mine);
+    }
+    if (theirsFound) setPartnerDp(theirs);
+    else setPartnerDp("");
+  }, [messages, room, myId]);
+
+  // Seed "last active" from the most recent partner message so the header shows
+  // a sensible elapsed time immediately (before any live typing/message event).
+  useEffect(() => {
+    let latest = 0;
+    for (const m of messages) {
+      if (m.sender !== myId) latest = Math.max(latest, new Date(m.created_at).getTime());
+    }
+    if (latest) setPartnerLastActive((prev) => Math.max(prev, latest));
+  }, [messages, myId]);
+
+  const saveName = () => {
+    const n = nameInput.trim();
+    if (!n) return;
+    localStorage.setItem(NAME_KEY, n);
+    setName(n);
+  };
+  const createRoom = () => {
+    const code = genCode();
+    localStorage.setItem(ROOM_KEY, code);
+    localStorage.removeItem(JOINED_KEY);
+    setJoined(false);
+    setRoom(code);
+  };
+  const joinRoom = () => {
+    if (joinCode.trim().length < 4) return;
+    const code = joinCode.trim();
+    localStorage.setItem(ROOM_KEY, code);
+    localStorage.setItem(JOINED_KEY, "1");
+    setJoined(true);
+    setRoom(code);
+  };
+  const leaveRoom = () => {
+    localStorage.removeItem(ROOM_KEY);
+    localStorage.removeItem(JOINED_KEY);
+    setJoined(false);
+    announced.current = null;
+    setRoom(null);
+    setMessages([]);
+    setJoinCode("");
+    backToInbox();
+  };
+  const copyCode = async () => {
+    if (!room) return;
+    try {
+      await navigator.clipboard.writeText(room);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const send = async () => {
+    const content = text.trim();
+    if (!content || !room) return;
+    setText("");
+    const reply = replyTo;
+    setReplyTo(null);
+    // stop broadcasting typing once a message is sent
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { sender: myId, typing: false },
+    });
+    const wire = reply
+      ? encodeReply(
+          {
+            id: reply.id,
+            preview: previewOf(reply.content).slice(0, 140),
+            authorId: reply.sender,
+            authorName: reply.sender === myId ? name ?? "You" : displayName,
+          },
+          content,
+        )
+      : content;
+    // Insert and use the real DB row so realtime can't duplicate it.
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({ room_code: room, sender: myId, content: wire })
+      .select()
+      .single();
+    if (error) {
+      console.error("Message send failed:", error.message);
+      return;
+    }
+    if (data) {
+      setMessages((prev) => {
+        const m = data as Message;
+        if (prev.some((p) => p.id === m.id)) return prev;
+        return [...prev, m];
+      });
+    }
+  };
+
+  // Persist a media payload as a normal message using the MEDIA_MARK sentinel.
+  const sendMediaPayload = async (payload: MediaPayload) => {
+    if (!room) return;
+    const raw = encodeMedia(payload);
+    const reply = replyTo;
+    setReplyTo(null);
+    const content = reply
+      ? encodeReply(
+          {
+            id: reply.id,
+            preview: previewOf(reply.content).slice(0, 140),
+            authorId: reply.sender,
+            authorName: reply.sender === myId ? name ?? "You" : displayName,
+          },
+          raw,
+        )
+      : raw;
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({ room_code: room, sender: myId, content })
+      .select()
+      .single();
+    if (error) {
+      console.error("Media send failed:", error.message);
+      return;
+    }
+    if (data) {
+      setMessages((prev) => (prev.some((p) => p.id === (data as Message).id) ? prev : [...prev, data as Message]));
+    }
+  };
+
+  const handlePickFile = async (file: File, views: ViewChoice) => {
+    setAttachOpen(false);
+    const kind: MediaPayload["kind"] = file.type.startsWith("video") ? "video" : "image";
+    const url = await fileToDataUrl(file);
+    await sendMediaPayload({
+      kind,
+      url,
+      maxViews: views,
+      hue: Math.floor(Math.random() * 5),
+    });
+  };
+  const handleCameraShot = async (dataUrl: string, filterId: string) => {
+    const views = cameraOpen?.views ?? 1;
+    setCameraOpen(null);
+    await sendMediaPayload({
+      kind: "image",
+      url: dataUrl,
+      maxViews: views,
+      filter: filterId,
+      hue: Math.floor(Math.random() * 5),
+    });
+  };
+  const handleVoiceSend = async (dataUrl: string, duration: number) => {
+    setRecording(false);
+    await sendMediaPayload({ kind: "audio", url: dataUrl, maxViews: 0, duration });
+  };
+
+  const saveDp = async (file: File) => {
+    if (!room) return;
+    const url = await uploadDp(room, myId, file);
+    setMyDp(url);
+    cacheDp(room, myId, url);
+    await broadcastDp(room, myId, url);
+  };
+  const removeDp = async () => {
+    if (!room) return;
+    setMyDp("");
+    cacheDp(room, myId, "");
+    await broadcastDp(room, myId, "");
+  };
+
+  const insertEmoji = (e: string) => setText((t) => t + e);
+
+  // ---- Incoming call listener (subscribes per room) ----
+  useEffect(() => {
+    if (!room) return;
+    const ch = supabase
+      .channel(`call:${room}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "offer" }, ({ payload }) => {
+        if (payload.from === myId) return;
+        if (call) return;
+        setCall({
+          mode: "incoming",
+          peerName: payload.peerName || displayName,
+          offer: payload.offer,
+          video: !!payload.video,
+        });
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, myId, call]);
+
+  // Broadcast a lightweight "typing" event to the partner (throttled).
+  const handleTyping = (value: string) => {
+    setText(value);
+    if (!room || !channelRef.current) return;
+    const now = Date.now();
+    if (now - lastTypingSent.current < 1200) return;
+    lastTypingSent.current = now;
+    channelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { sender: myId, typing: true },
+    });
+  };
+
+  // ---- Swipe-to-reply gesture (received bubbles only) ----
+  const startReply = (m: Message) => {
+    setReplyTo(m);
+    // focus the composer right after the reply bar renders
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const onTouchMove = (id: string, e: React.TouchEvent) => {
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    }
+    // only treat as horizontal swipe-right when mostly horizontal
+    if (dx > 0 && Math.abs(dx) > Math.abs(dy)) {
+      setSwipeId(id);
+      setSwipeX(Math.min(dx, 64));
+    }
+  };
+  const onTouchEnd = (m: Message) => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    if (swipeId === m.id && swipeX > 40) startReply(m);
+    setSwipeId(null);
+    setSwipeX(0);
+  };
+
+  const armLongPress = (m: Message, e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => setActionMsg(m), 480);
+  };
+
+  const deleteForMe = (m: Message) => {
+    if (!room) return;
+    addDeletedForMe(room, m.id);
+    setDeletedForMe((prev) => new Set(prev).add(m.id));
+  };
+  const deleteForEveryone = async (m: Message) => {
+    if (!room || m.sender !== myId) return;
+    // Optimistic
+    setMessages((prev) => prev.map((p) => (p.id === m.id ? { ...p, content: DEL_MARK } : p)));
+    const { error } = await supabase
+      .from("messages")
+      .update({ content: DEL_MARK })
+      .eq("id", m.id);
+    if (error) console.error("Delete-for-everyone failed:", error.message);
+  };
+
+  // ---- Step 1: ask for name ----
+  if (!name) {
+    return (
+      <div className="flex h-[100dvh] w-screen flex-col items-center justify-center hub-screen-bg px-6">
+        <div className="ornate-card w-full max-w-sm px-5 py-7 text-center">
+          <h3 className="font-heading text-base font-bold tracking-widest text-gold">WHAT'S YOUR NAME?</h3>
+          <p className="mt-2 text-[11px] text-muted-foreground">Saved on this device only.</p>
+          <input
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && saveName()}
+            placeholder="Enter your name"
+            className="mt-5 w-full rounded-md border border-border bg-card px-3 py-2 text-center text-sm text-foreground outline-none focus:border-gold"
+          />
+          <button onClick={saveName} className="gold-btn mt-3 w-full rounded-md py-2.5 text-sm">
+            CONTINUE
+          </button>
+        </div>
+        <BottomNav active="chats" />
+      </div>
+    );
+  }
+
+  // ---- Step 2: create / join room ----
+  if (!room) {
+    return (
+      <div className="flex h-[100dvh] w-screen flex-col items-center justify-center hub-screen-bg px-6">
+        <div className="ornate-card w-full max-w-sm px-5 py-7 text-center">
+          <h3 className="font-heading text-base font-bold tracking-widest text-gold">PRIVATE ROOM</h3>
+          <p className="mt-2 text-[11px] text-muted-foreground">Welcome, {name}.</p>
+          <button onClick={createRoom} className="gold-btn mt-5 w-full rounded-md py-2.5 text-sm">
+            CREATE ROOM
+          </button>
+          <div className="my-3 text-[11px] text-muted-foreground">— or —</div>
+          <input
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value)}
+            placeholder="Enter 6-digit code"
+            inputMode="numeric"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-center text-sm tracking-widest text-foreground outline-none focus:border-gold"
+          />
+          <button onClick={joinRoom} className="gold-btn mt-2.5 w-full rounded-md py-2.5 text-sm">
+            JOIN ROOM
+          </button>
+        </div>
+        <BottomNav active="chats" />
+      </div>
+    );
+  }
+
+  // ---- Step 3: waiting for partner (show code) ----
+  if (!partnerPresent && !joined) {
+    return (
+      <div className="flex h-[100dvh] w-screen flex-col items-center justify-center hub-screen-bg px-6">
+        <div className="ornate-card w-full max-w-sm px-5 py-8 text-center">
+          <h3 className="font-heading text-xs font-semibold tracking-widest text-gold">ROOM CODE</h3>
+          <p className="mt-2 text-[11px] text-muted-foreground">Share this with your partner.</p>
+          <div className="my-5 font-heading text-4xl font-bold tracking-[0.3em] text-gold">{room}</div>
+          <button onClick={copyCode} className="gold-btn mx-auto flex items-center gap-2 rounded-md px-4 py-2 text-sm">
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            {copied ? "COPIED" : "COPY"}
+          </button>
+          <p className="mt-6 animate-pulse text-[11px] tracking-widest text-gold/70">WAITING FOR PARTNER…</p>
+          <button onClick={leaveRoom} className="mt-5 text-[11px] text-muted-foreground underline">
+            Cancel
+          </button>
+        </div>
+        <BottomNav active="chats" />
+      </div>
+    );
+  }
+
+  const partnerOnline = partnerLastActive > 0 && nowMs - partnerLastActive < 30000;
+
+  // ---- Step 4a: inbox / chat list (default landing for the Chat tab) ----
+  if (!openChat) {
+    const last = visibleMessages[visibleMessages.length - 1];
+    const unread = messages.filter(
+      (m) =>
+        m.sender !== myId &&
+        !m.read_at &&
+        !m.content.startsWith(JOIN_MARK) &&
+        !isDp(m.content) &&
+        !isDeleted(m.content) &&
+        !deletedForMe.has(m.id),
+    ).length;
+    const preview = partnerTyping
+      ? "Typing…"
+      : last
+        ? previewOf(last.content)
+        : "Tap to start chatting";
+    return (
+      <div className="hub-screen-bg flex h-[100dvh] w-screen flex-col overflow-hidden">
+        <header className="shrink-0 px-4 pb-2 pt-4">
+          <h1 className="font-heading text-xl font-bold tracking-wide text-gold">Chats</h1>
+        </header>
+        <div className="flex-1 overflow-y-auto px-2">
+          <button
+            onClick={openRoom}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-secondary/40"
+          >
+            <div className="relative shrink-0">
+              {partnerDp ? (
+                <img
+                  src={partnerDp}
+                  alt={displayName}
+                  className="h-11 w-11 rounded-full border-2 border-gold object-cover"
+                />
+              ) : (
+                <span className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-gold bg-secondary font-heading text-gold">
+                  {displayName.charAt(0).toUpperCase()}
+                </span>
+              )}
+              {(partnerOnline || partnerPresent) && (
+                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-400" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-heading text-sm font-semibold text-foreground">
+                  {displayName}
+                </span>
+                {last && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {formatIST(last.created_at)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 flex items-center justify-between gap-2">
+                <span
+                  className={`truncate text-xs ${partnerTyping ? "text-primary" : "text-muted-foreground"}`}
+                >
+                  {preview}
+                </span>
+                {unread > 0 && (
+                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+                    {unread}
+                  </span>
+                )}
+              </div>
+            </div>
+          </button>
+        </div>
+        <div className="h-16 shrink-0" />
+        <BottomNav active="chats" />
+      </div>
+    );
+  }
+
+  // ---- Step 4b: chat room ----
+  const lastSeenLabel = partnerTyping
+    ? "Typing…"
+    : partnerOnline
+      ? "Online"
+      : partnerLastActive > 0
+        ? formatElapsed(partnerLastActive, nowMs)
+        : partnerPresent
+          ? "Online"
+          : "Offline";
+  return (
+    <div className="hub-chat-bg flex h-[100dvh] w-screen flex-col overflow-hidden">
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-border/60 bg-background/70 px-3 py-1.5 backdrop-blur-xl">
+        <button onClick={backToInbox} className="text-gold" aria-label="Back">
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <div className="relative shrink-0">
+          {partnerDp ? (
+            <img
+              src={partnerDp}
+              alt={displayName}
+              className="h-9 w-9 rounded-full border-2 border-gold object-cover"
+            />
+          ) : (
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-gold bg-secondary font-heading text-sm text-gold">
+              {displayName.charAt(0).toUpperCase()}
+            </span>
+          )}
+          {(partnerOnline || partnerPresent) && (
+            <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-400" />
+          )}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col leading-tight">
+          <span className="truncate font-heading text-sm font-semibold tracking-wide text-foreground">
+            {displayName}
+          </span>
+          <span
+            className={`text-[10px] ${
+              partnerTyping
+                ? "text-primary"
+                : partnerOnline
+                  ? "text-emerald-400"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {lastSeenLabel}
+          </span>
+        </div>
+        <button
+          onClick={() => setCall({ mode: "outgoing", peerName: displayName, video: false })}
+          className="text-gold"
+          aria-label="Call"
+        >
+          <Phone className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => setCall({ mode: "outgoing", peerName: displayName, video: true })}
+          className="text-gold"
+          aria-label="Video call"
+        >
+          <Video className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => setShowLeaveConfirm(true)}
+          className="text-gold"
+          aria-label="More options"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </header>
+
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 space-y-1.5 overflow-y-auto px-3 py-2.5"
+      >
+        {visibleMessages.length > 0 && (
+          <div className="flex justify-center pb-1.5">
+            <span className="rounded-full bg-secondary/70 px-2.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground backdrop-blur">
+              Today
+            </span>
+          </div>
+        )}
+        {visibleMessages.map((m) => {
+          const mine = m.sender === myId;
+          const dragging = swipeId === m.id;
+          const { reply, body } = extractReply(m.content);
+          const deleted = body === DEL_MARK;
+          const mediaPayload = !deleted && isMedia(body) ? decodeMedia(body) : null;
+          return (
+            <div
+              key={m.id}
+              className={`flex ${mine ? "justify-end" : "justify-start"}`}
+              onTouchStart={(e) => { if (!mine) onTouchStart(e); armLongPress(m, e); }}
+              onTouchMove={(e) => { if (!mine) onTouchMove(m.id, e); else if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
+              onTouchEnd={() => { if (!mine) onTouchEnd(m); else if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
+              onDoubleClick={() => !deleted && startReply(m)}
+              onContextMenu={(e) => { e.preventDefault(); if (!deleted) setActionMsg(m); }}
+            >
+              <div
+                className={`max-w-[78%] rounded-2xl px-2.5 py-1.5 text-[13px] ${
+                  mine
+                    ? "hub-bubble-mine rounded-br-sm text-white"
+                    : "hub-bubble-theirs rounded-bl-sm text-foreground"
+                }`}
+                style={
+                  dragging
+                    ? { transform: `translateX(${swipeX}px)`, transition: "none" }
+                    : { transform: "translateX(0)", transition: "transform 0.18s ease" }
+                }
+              >
+                {reply && !deleted && (
+                  <div className={`mb-1 rounded-md border-l-2 px-2 py-1 text-[11px] ${mine ? "border-white/70 bg-white/10" : "border-primary bg-primary/10"}`}>
+                    <p className={`text-[10px] font-semibold ${mine ? "text-white/90" : "text-primary"}`}>
+                      {reply.authorId === myId ? "You" : reply.authorName}
+                    </p>
+                    <p className={`truncate ${mine ? "text-white/80" : "text-muted-foreground"}`}>{reply.preview}</p>
+                  </div>
+                )}
+                {deleted ? (
+                  <p className="italic opacity-60">🚫 This message was deleted</p>
+                ) : mediaPayload ? (
+                  <MediaBubble messageId={m.id} media={mediaPayload} mine={mine} />
+                ) : (
+                  <p className="whitespace-pre-wrap break-words">{body}</p>
+                )}
+                <span
+                  className={`mt-0.5 flex items-center justify-end gap-1 text-[9px] ${
+                    mine ? "text-white/70" : "text-muted-foreground"
+                  }`}
+                >
+                  {formatIST(m.created_at)}
+                  {mine && <Ticks read={!!m.read_at} delivered={partnerPresent} />}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        {partnerTyping && (
+          <div className="flex justify-start">
+            <div className="hub-bubble-theirs flex items-center gap-1 rounded-2xl rounded-bl-sm px-3 py-2.5">
+              <span className="typing-dot" style={{ animationDelay: "0ms" }} />
+              <span className="typing-dot" style={{ animationDelay: "180ms" }} />
+              <span className="typing-dot" style={{ animationDelay: "360ms" }} />
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <div className="shrink-0 border-t border-border/60 bg-background/70 backdrop-blur-xl">
+        {replyTo && (
+          <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5">
+            <span className="h-7 w-1 shrink-0 rounded-full bg-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold text-primary">Replying to {displayName}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{previewOf(replyTo.content)}</p>
+            </div>
+            <button
+              onClick={() => setReplyTo(null)}
+              aria-label="Cancel reply"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          {recording ? (
+            <VoiceRecorder onCancel={() => setRecording(false)} onSend={handleVoiceSend} />
+          ) : (
+            <>
+              <div className="flex flex-1 items-center gap-1.5 rounded-full border border-border/60 bg-card/60 py-1.5 pl-1.5 pr-2.5">
+                <button
+                  onClick={() => { setEmojiOpen(false); setAttachOpen(true); }}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gold transition-colors hover:bg-secondary/60"
+                  aria-label="Add attachment"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+                <input
+                  ref={inputRef}
+                  value={text}
+                  onChange={(e) => handleTyping(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && send()}
+                  placeholder="Type a message…"
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                />
+                <button
+                  onClick={() => setEmojiOpen((v) => !v)}
+                  className={`shrink-0 transition-colors ${emojiOpen ? "text-gold" : "text-muted-foreground hover:text-gold"}`}
+                  aria-label="Emoji"
+                >
+                  <Smile className="h-4 w-4" />
+                </button>
+              </div>
+              <button
+                onClick={() => (text.trim() ? send() : setRecording(true))}
+                aria-label={text.trim() ? "Send" : "Voice message"}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white gold-btn"
+              >
+                {text.trim() ? <Send className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </button>
+            </>
+          )}
+        </div>
+        {emojiOpen && !recording && (
+          <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />
+        )}
+      </div>
+
+      <div className="h-16 shrink-0" />
+      <BottomNav active="chats" />
+
+      {attachOpen && (
+        <AttachSheet
+          onClose={() => setAttachOpen(false)}
+          onPickFile={handlePickFile}
+          onOpenCamera={(views) => { setAttachOpen(false); setCameraOpen({ views }); }}
+        />
+      )}
+      {cameraOpen && (
+        <CameraCapture onClose={() => setCameraOpen(null)} onCapture={handleCameraShot} />
+      )}
+      {call && room && (
+        <CallOverlay
+          room={room}
+          myId={myId}
+          peerName={call.peerName}
+          mode={call.mode}
+          incomingOffer={call.mode === "incoming" ? call.offer : undefined}
+          video={call.video}
+          onClose={() => setCall(null)}
+        />
+      )}
+      {showLeaveConfirm && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm animate-fade-in"
+          onClick={() => setShowLeaveConfirm(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="ornate-card w-full max-w-sm px-6 py-7 text-center"
+          >
+            <h3 className="font-heading text-lg font-bold tracking-widest text-gold">
+              LEAVE ROOM?
+            </h3>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              You're only ending your current session. Your chats, media and
+              room data stay safely preserved. Rejoin anytime with the same
+              room code to pick up right where you left off.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowLeaveConfirm(false)}
+                className="flex-1 rounded-md border border-border/70 bg-card/60 py-2.5 font-heading text-xs tracking-widest text-foreground hover:bg-card"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => {
+                  setShowLeaveConfirm(false);
+                  leaveRoom();
+                }}
+                className="gold-btn flex-1 rounded-md py-2.5 text-xs"
+              >
+                LEAVE ROOM
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {actionMsg && (() => {
+        const { body } = extractReply(actionMsg.content);
+        const deleted = body === DEL_MARK;
+        const canCopy = !deleted && !isMedia(body);
+        return (
+          <MessageActionSheet
+            mine={actionMsg.sender === myId && !deleted}
+            canCopy={canCopy}
+            onReply={() => !deleted && startReply(actionMsg)}
+            onCopy={() => { if (canCopy) navigator.clipboard.writeText(body).catch(() => {}); }}
+            onDeleteForMe={() => deleteForMe(actionMsg)}
+            onDeleteForEveryone={() => deleteForEveryone(actionMsg)}
+            onClose={() => setActionMsg(null)}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+export function Avatar({ name, url, size = 44 }: { name: string; url: string | null; size?: number }) {
+  return <AvatarImpl name={name} url={url} size={size} />;
+}
+
+function Ticks({ read, delivered }: { read: boolean; delivered: boolean }) {
+  // Double BLUE = read, double faded = delivered, single faded = sent
+  if (read) return <CheckCheck className="h-3 w-3 text-sky-400" />;
+  if (delivered) return <CheckCheck className="h-3 w-3 opacity-70" />;
+  return <Check className="h-3 w-3 opacity-70" />;
+}
+
+function AvatarImpl({ name, url, size = 44 }: { name: string; url: string | null; size?: number }) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        width={size}
+        height={size}
+        loading="lazy"
+        className="shrink-0 rounded-full border-2 border-gold object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full border-2 border-gold bg-secondary font-heading text-gold"
+      style={{ width: size, height: size }}
+    >
+      {name.charAt(0)}
+    </span>
+  );
+}
