@@ -81,32 +81,31 @@
 
 :root {
   --radius: 0.75rem;
-  /* Pink / magenta accents */
-  --gold: #d63af9;
-  --gold-bright: #e879ff;
-  --gold-dim: #8b2fc9;
-  /* Deep purple base */
-  --background: #1a0a2e;
-  --foreground: #f4ecff;
-  --card: #241041;
-  --card-foreground: #f4ecff;
-  --popover: #1f0d38;
-  --popover-foreground: #f4ecff;
-  --primary: #d63af9;
+  /* Exact reference palette: #FF6CCF / #FF3EA8 / #A73BFF / #1B0B22 */
+  --gold: #ff3ea8;
+  --gold-bright: #ff6ccf;
+  --gold-dim: #a73bff;
+  --background: #1b0b22;
+  --foreground: #f6ecff;
+  --card: #2a1140;
+  --card-foreground: #f6ecff;
+  --popover: #22102f;
+  --popover-foreground: #f6ecff;
+  --primary: #ff3ea8;
   --primary-foreground: #ffffff;
-  --secondary: #2e1552;
-  --secondary-foreground: #f4ecff;
-  --muted: #291249;
-  --muted-foreground: #c3a9e0;
-  --accent: #3a1a66;
-  --accent-foreground: #f4ecff;
+  --secondary: #331355;
+  --secondary-foreground: #f6ecff;
+  --muted: #2a1140;
+  --muted-foreground: #c8b3e6;
+  --accent: #a73bff;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.6 0.22 20);
   --destructive-foreground: #ffffff;
-  --border: color-mix(in oklab, #8b2fc9 45%, transparent);
-  --input: color-mix(in oklab, #8b2fc9 35%, transparent);
-  --ring: #d63af9;
-  --gradient-primary: linear-gradient(135deg, #8b2fc9 0%, #d63af9 100%);
-  --shadow-glow: 0 0 24px -6px color-mix(in oklab, #d63af9 55%, transparent);
+  --border: color-mix(in oklab, #a73bff 40%, transparent);
+  --input: color-mix(in oklab, #a73bff 30%, transparent);
+  --ring: #ff3ea8;
+  --gradient-primary: linear-gradient(135deg, #a73bff 0%, #ff3ea8 55%, #ff6ccf 100%);
+  --shadow-glow: 0 0 26px -6px color-mix(in oklab, #ff3ea8 60%, transparent);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -250,16 +249,16 @@
 .hub-chat-bg,
 .hub-screen-bg {
   background:
-    radial-gradient(120% 60% at 50% 0%, color-mix(in oklab, #8b2fc9 22%, transparent) 0%, transparent 55%),
-    linear-gradient(180deg, #2a1250 0%, #1a0a2e 45%, #0d0518 100%);
+    radial-gradient(120% 60% at 50% 0%, color-mix(in oklab, #a73bff 24%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, #2a1046 0%, #1b0b22 45%, #0d0518 100%);
 }
 .hub-bubble-mine {
-  background-image: linear-gradient(135deg, #8b2fc9 0%, #d63af9 100%);
-  box-shadow: 0 6px 18px -8px color-mix(in oklab, #d63af9 60%, transparent);
+  background-image: linear-gradient(135deg, #ff3ea8 0%, #ff6ccf 100%);
+  box-shadow: 0 6px 18px -8px color-mix(in oklab, #ff3ea8 65%, transparent);
 }
 .hub-bubble-theirs {
-  background: color-mix(in oklab, #241041 88%, #000 12%);
-  border: 1px solid color-mix(in oklab, #8b2fc9 22%, transparent);
+  background: color-mix(in oklab, #2a1140 85%, #000 15%);
+  border: 1px solid color-mix(in oklab, #a73bff 22%, transparent);
 }
 
 /* Typing indicator — 3-dot wave */
