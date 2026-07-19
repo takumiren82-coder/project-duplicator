@@ -14,7 +14,7 @@ export const Route = createFileRoute("/")({
       { title: "NEALTH — Where Stories Come Alive" },
       { name: "description", content: "Discover, read and collect timeless classics. NEALTH brings the world's great books to your pocket." },
       { property: "og:title", content: "NEALTH — Where Stories Come Alive" },
-      { property: "og:description", content: "Discover, read and collect timeless classics on NEALTH." },
+      { property: "og:description", content: "Discover, read and collect timeless classics. NEALTH brings the world's great books to your pocket." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
