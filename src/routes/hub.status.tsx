@@ -1,11 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Eye, ChevronLeft, ChevronRight, Trash2, Send } from "lucide-react";
+import { Plus, X, Eye, ChevronLeft, ChevronRight, Trash2, Send, Heart, MessageCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { BottomNav } from "@/components/BottomNav";
 import { getMyId, getMyName, getRoom } from "@/lib/identity";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { DP_MARK, broadcastDp, cacheDp, decodeDp, isDp, readCachedDp, uploadDp } from "@/lib/dp";
+import { LIKE_MARK, encodeStatusLike, isStatusLike, decodeStatusLike } from "@/lib/msg-meta";
+import { encodeMedia } from "@/lib/media-msg";
 
 export const Route = createFileRoute("/hub/status")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -375,6 +377,10 @@ function StatusPage() {
           statuses={partner}
           views={views}
           mode="partner"
+          room={room}
+          myId={myId}
+          myName={myName}
+          onNavigateToChat={() => navigate({ to: "/hub", search: { chat: "1" } })}
           onClose={() => setViewer(null)}
           onView={recordView}
         />
@@ -384,6 +390,10 @@ function StatusPage() {
           statuses={mine}
           views={views}
           mode="mine"
+          room={room}
+          myId={myId}
+          myName={myName}
+          onNavigateToChat={() => navigate({ to: "/hub", search: { chat: "1" } })}
           onClose={() => setViewer(null)}
           onDelete={deleteStatus}
         />
@@ -460,6 +470,10 @@ function StoryViewer({
   statuses,
   views,
   mode,
+  room,
+  myId,
+  myName,
+  onNavigateToChat,
   onClose,
   onView,
   onDelete,
@@ -467,12 +481,75 @@ function StoryViewer({
   statuses: Status[];
   views: StatusView[];
   mode: "mine" | "partner";
+  room: string;
+  myId: string;
+  myName: string;
+  onNavigateToChat: () => void;
   onClose: () => void;
   onView?: (s: Status) => void;
   onDelete?: (s: Status) => void;
 }) {
   const [idx, setIdx] = useState(0);
   const current = statuses[idx];
+  // Likes are stored as sentinel messages so no schema change is needed.
+  const [likes, setLikes] = useState<{ sender: string; statusId: string }[]>([]);
+
+  useEffect(() => {
+    if (!room) return;
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from("messages")
+        .select("sender,content")
+        .eq("room_code", room)
+        .like("content", LIKE_MARK + "%");
+      if (!alive || !data) return;
+      const rows = (data as { sender: string; content: string }[])
+        .filter((m) => isStatusLike(m.content))
+        .map((m) => ({ sender: m.sender, statusId: decodeStatusLike(m.content) }));
+      setLikes(rows);
+    })();
+    const ch = supabase
+      .channel(`likes:${room}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages", filter: `room_code=eq.${room}` },
+        (payload) => {
+          const m = payload.new as { sender: string; content: string };
+          if (!m?.content || !isStatusLike(m.content)) return;
+          setLikes((prev) => {
+            const sid = decodeStatusLike(m.content);
+            if (prev.some((l) => l.sender === m.sender && l.statusId === sid)) return prev;
+            return [...prev, { sender: m.sender, statusId: sid }];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "messages", filter: `room_code=eq.${room}` },
+        () => {
+          // On delete we don't know the payload content reliably; refetch.
+          supabase
+            .from("messages")
+            .select("sender,content")
+            .eq("room_code", room)
+            .like("content", LIKE_MARK + "%")
+            .then(({ data }) => {
+              if (!data) return;
+              setLikes(
+                (data as { sender: string; content: string }[])
+                  .filter((m) => isStatusLike(m.content))
+                  .map((m) => ({ sender: m.sender, statusId: decodeStatusLike(m.content) })),
+              );
+            });
+        },
+      )
+      .subscribe();
+    return () => {
+      alive = false;
+      supabase.removeChannel(ch);
+    };
+  }, [room]);
 
   const next = useCallback(() => {
     setIdx((i) => {
@@ -498,6 +575,51 @@ function StoryViewer({
 
   if (!current) return null;
   const seenBy = views.filter((v) => v.status_id === current.id);
+  const likesForCurrent = likes.filter((l) => l.statusId === current.id);
+  const iLiked = likesForCurrent.some((l) => l.sender === myId);
+  const likeCount = likesForCurrent.length;
+
+  const toggleLike = async () => {
+    if (!room || !current) return;
+    if (iLiked) {
+      // Optimistic remove
+      setLikes((prev) => prev.filter((l) => !(l.sender === myId && l.statusId === current.id)));
+      await supabase
+        .from("messages")
+        .delete()
+        .eq("room_code", room)
+        .eq("sender", myId)
+        .eq("content", encodeStatusLike(current.id));
+    } else {
+      setLikes((prev) => [...prev, { sender: myId, statusId: current.id }]);
+      await supabase.from("messages").insert({
+        room_code: room,
+        sender: myId,
+        content: encodeStatusLike(current.id),
+      });
+    }
+  };
+
+  const openComment = () => {
+    // Stash a synthetic reply-ref for the chat composer. previewOf() renders
+    // it as "📷 Photo" / "🎬 Video" so the chip looks native.
+    const pending = {
+      id: `status:${current.id}`,
+      room_code: room,
+      sender: current.sender,
+      content: encodeMedia({
+        kind: current.media_type,
+        url: current.media_url,
+        maxViews: 0,
+      }),
+      created_at: current.created_at,
+    };
+    try {
+      sessionStorage.setItem("nealth_pending_reply", JSON.stringify(pending));
+    } catch { /* ignore */ }
+    onClose();
+    onNavigateToChat();
+  };
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-black">
@@ -554,6 +676,16 @@ function StoryViewer({
       {/* seen receipts (only on your own status) */}
       {mode === "mine" && (
         <div className="border-t border-white/10 bg-black/60 px-5 pb-6 pt-4 text-white">
+          <div className="mb-3 flex items-center gap-4">
+            <button
+              onClick={toggleLike}
+              aria-label={iLiked ? "Unlike" : "Like"}
+              className="flex items-center gap-1.5 text-sm"
+            >
+              <Heart className={`h-5 w-5 ${iLiked ? "fill-rose-500 text-rose-500" : "text-white"}`} />
+              <span className="font-medium">{likeCount || ""}</span>
+            </button>
+          </div>
           <div className="mb-3 flex items-center gap-2">
             <Eye className="h-4 w-4 text-gold" />
             <span className="text-sm font-semibold tracking-wide">
@@ -585,6 +717,28 @@ function StoryViewer({
                 ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* Like + Comment on partner status */}
+      {mode === "partner" && (
+        <div className="flex items-center justify-center gap-4 border-t border-white/10 bg-black/70 px-5 pb-6 pt-4 text-white">
+          <button
+            onClick={toggleLike}
+            aria-label={iLiked ? "Unlike" : "Like"}
+            className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium backdrop-blur"
+          >
+            <Heart className={`h-5 w-5 ${iLiked ? "fill-rose-500 text-rose-500" : "text-white"}`} />
+            <span>{iLiked ? "Liked" : "Like"}{likeCount ? ` · ${likeCount}` : ""}</span>
+          </button>
+          <button
+            onClick={openComment}
+            aria-label="Comment"
+            className="flex items-center gap-2 rounded-full gold-btn px-4 py-2 text-sm font-medium"
+          >
+            <MessageCircle className="h-5 w-5" />
+            <span>Reply in chat</span>
+          </button>
         </div>
       )}
     </div>
