@@ -1090,8 +1090,9 @@ function PrivateHub() {
         </div>
       )}
       {actionMsg && (() => {
-        const { body } = extractReply(actionMsg.content);
-        const deleted = body === DEL_MARK;
+        const { body: rawBody } = extractReply(actionMsg.content);
+        const deleted = rawBody === DEL_MARK;
+        const body = typeof rawBody === "string" ? stripEdit(rawBody) : rawBody;
         const canCopy = !deleted && !isMedia(body);
         const canEdit = !deleted && !isMedia(body) && actionMsg.sender === myId;
         return (
