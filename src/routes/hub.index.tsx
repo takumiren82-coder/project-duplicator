@@ -18,7 +18,11 @@ import {
   extractReply,
   getDeletedForMe,
   isDeleted,
+  isEdited,
+  isStatusLike,
   previewOf,
+  stripEdit,
+  withEditMark,
   type ReplyRef,
 } from "@/lib/msg-meta";
 import { MessageActionSheet } from "@/components/MessageActionSheet";
@@ -128,10 +132,28 @@ function PrivateHub() {
   const touchStartY = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
   const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
   // Live "last seen" ticker + last partner activity timestamp (ms).
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [partnerLastActive, setPartnerLastActive] = useState<number>(0);
+
+  // Pending reply-ref stashed by the Status page's "Comment" button. Load it
+  // once when the chat room is opened so tapping Comment on a status opens
+  // the chat with the status already quoted in the composer.
+  useEffect(() => {
+    if (!openChat) return;
+    try {
+      const raw = sessionStorage.getItem("nealth_pending_reply");
+      if (!raw) return;
+      sessionStorage.removeItem("nealth_pending_reply");
+      const parsed = JSON.parse(raw) as Message;
+      if (parsed && parsed.id && parsed.content) {
+        setReplyTo(parsed);
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }
+    } catch { /* ignore */ }
+  }, [openChat]);
 
   // Navigate helpers for the inbox <-> chat room transition (search-param
   // driven so tapping the Chat tab always returns to the inbox without
@@ -287,6 +309,7 @@ function PrivateHub() {
     for (const m of messages) {
       const isJoin = m.content.startsWith(JOIN_MARK);
       const dpMsg = isDp(m.content);
+      const likeMsg = isStatusLike(m.content);
       if (m.sender !== myId) {
         present = true;
         if (isJoin) {
@@ -294,7 +317,7 @@ function PrivateHub() {
           if (n) pName = n;
         }
       }
-      if (!isJoin && !dpMsg && !deletedForMe.has(m.id)) visible.push(m);
+      if (!isJoin && !dpMsg && !likeMsg && !deletedForMe.has(m.id)) visible.push(m);
     }
     return { partnerPresent: present, partnerName: pName, visibleMessages: visible };
   }, [messages, myId, deletedForMe]);
@@ -401,6 +424,21 @@ function PrivateHub() {
   const send = async () => {
     const content = text.trim();
     if (!content || !room) return;
+    // Edit path: update the message in-place instead of inserting a new one.
+    if (editing) {
+      const target = editing;
+      setEditing(null);
+      setText("");
+      const { reply: oldReply } = extractReply(target.content);
+      const nextBody = withEditMark(content);
+      const wire = oldReply
+        ? encodeReply(oldReply, nextBody)
+        : nextBody;
+      setMessages((prev) => prev.map((p) => (p.id === target.id ? { ...p, content: wire } : p)));
+      const { error } = await supabase.from("messages").update({ content: wire }).eq("id", target.id);
+      if (error) console.error("Edit failed:", error.message);
+      return;
+    }
     setText("");
     const reply = replyTo;
     setReplyTo(null);
@@ -600,6 +638,15 @@ function PrivateHub() {
       .update({ content: DEL_MARK })
       .eq("id", m.id);
     if (error) console.error("Delete-for-everyone failed:", error.message);
+  };
+
+  const beginEdit = (m: Message) => {
+    const { body } = extractReply(m.content);
+    if (typeof body !== "string" || body === DEL_MARK || isMedia(body)) return;
+    setEditing(m);
+    setReplyTo(null);
+    setText(stripEdit(body));
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   // ---- Step 1: ask for name ----
@@ -839,7 +886,9 @@ function PrivateHub() {
           const dragging = swipeId === m.id;
           const { reply, body } = extractReply(m.content);
           const deleted = body === DEL_MARK;
-          const mediaPayload = !deleted && isMedia(body) ? decodeMedia(body) : null;
+          const edited = !deleted && isEdited(m.content);
+          const displayBody = edited ? stripEdit(body) : body;
+          const mediaPayload = !deleted && isMedia(displayBody) ? decodeMedia(displayBody) : null;
           return (
             <div
               key={m.id}
@@ -875,13 +924,14 @@ function PrivateHub() {
                 ) : mediaPayload ? (
                   <MediaBubble messageId={m.id} media={mediaPayload} mine={mine} />
                 ) : (
-                  <p className="whitespace-pre-wrap break-words">{body}</p>
+                  <p className="whitespace-pre-wrap break-words">{displayBody}</p>
                 )}
                 <span
                   className={`mt-0.5 flex items-center justify-end gap-1 text-[9px] ${
                     mine ? "text-white/70" : "text-muted-foreground"
                   }`}
                 >
+                  {edited && <span className="italic opacity-70">edited</span>}
                   {formatIST(m.created_at)}
                   {mine && <Ticks read={!!m.read_at} delivered={partnerPresent} />}
                 </span>
@@ -912,6 +962,22 @@ function PrivateHub() {
             <button
               onClick={() => setReplyTo(null)}
               aria-label="Cancel reply"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+        {editing && (
+          <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5">
+            <span className="h-7 w-1 shrink-0 rounded-full bg-amber-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold text-amber-300">Editing message</p>
+              <p className="truncate text-[11px] text-muted-foreground">{previewOf(editing.content)}</p>
+            </div>
+            <button
+              onClick={() => { setEditing(null); setText(""); }}
+              aria-label="Cancel edit"
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
@@ -1024,15 +1090,19 @@ function PrivateHub() {
         </div>
       )}
       {actionMsg && (() => {
-        const { body } = extractReply(actionMsg.content);
-        const deleted = body === DEL_MARK;
+        const { body: rawBody } = extractReply(actionMsg.content);
+        const deleted = rawBody === DEL_MARK;
+        const body = typeof rawBody === "string" ? stripEdit(rawBody) : rawBody;
         const canCopy = !deleted && !isMedia(body);
+        const canEdit = !deleted && !isMedia(body) && actionMsg.sender === myId;
         return (
           <MessageActionSheet
             mine={actionMsg.sender === myId && !deleted}
             canCopy={canCopy}
+            canEdit={canEdit}
             onReply={() => !deleted && startReply(actionMsg)}
             onCopy={() => { if (canCopy) navigator.clipboard.writeText(body).catch(() => {}); }}
+            onEdit={() => beginEdit(actionMsg)}
             onDeleteForMe={() => deleteForMe(actionMsg)}
             onDeleteForEveryone={() => deleteForEveryone(actionMsg)}
             onClose={() => setActionMsg(null)}

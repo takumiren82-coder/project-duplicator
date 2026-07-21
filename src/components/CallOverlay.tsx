@@ -22,7 +22,22 @@ interface Props {
 }
 
 const RTC_CFG: RTCConfiguration = {
-  iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
+  // STUN handles most home networks; the free Metered "openrelay" TURN acts
+  // as a fallback so calls also work across symmetric NATs / carrier networks
+  // — this is what fixes "one side hears / sees the other but not vice versa".
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
+  iceCandidatePoolSize: 4,
 };
 
 export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer, video = false }: Props) {
@@ -41,6 +56,30 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const chRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  // Buffered local ICE candidates. Supabase broadcast is fire-and-forget, so
+  // anything we emit before the peer's channel actually subscribes is lost.
+  // We keep a copy and re-flush whenever we hear from the peer.
+  const localCandBuf = useRef<RTCIceCandidateInit[]>([]);
+  // Buffered remote ICE candidates that arrived before pc.setRemoteDescription.
+  const pendingRemote = useRef<RTCIceCandidateInit[]>([]);
+  const peerReady = useRef(false);
+
+  const flushLocalIce = () => {
+    const ch = chRef.current;
+    if (!ch) return;
+    for (const c of localCandBuf.current) {
+      ch.send({ type: "broadcast", event: "ice", payload: { from: myId, candidate: c } });
+    }
+  };
+  const applyPendingRemote = async () => {
+    const pc = pcRef.current;
+    if (!pc || !pc.remoteDescription) return;
+    const queue = pendingRemote.current;
+    pendingRemote.current = [];
+    for (const c of queue) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore */ }
+    }
+  };
 
   useEffect(() => {
     const channel = supabase.channel(`call:${room}`, { config: { broadcast: { self: false } } });
@@ -57,7 +96,9 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
     };
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        channel.send({ type: "broadcast", event: "ice", payload: { from: myId, candidate: e.candidate } });
+        const cand = e.candidate.toJSON();
+        localCandBuf.current.push(cand);
+        channel.send({ type: "broadcast", event: "ice", payload: { from: myId, candidate: cand } });
       }
     };
 
@@ -67,10 +108,25 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
         if (!pc.currentRemoteDescription) {
           await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
           setPhase("connecting");
+          await applyPendingRemote();
+          // Peer is definitely subscribed if we got their answer → re-flush.
+          if (!peerReady.current) { peerReady.current = true; flushLocalIce(); }
         }
+      })
+      .on("broadcast", { event: "hello" }, ({ payload }) => {
+        if (payload.from === myId) return;
+        if (peerReady.current) return;
+        peerReady.current = true;
+        // Peer just subscribed. Re-send any ICE candidates we already emitted.
+        flushLocalIce();
       })
       .on("broadcast", { event: "ice" }, async ({ payload }) => {
         if (payload.from === myId) return;
+        if (!peerReady.current) { peerReady.current = true; flushLocalIce(); }
+        if (!pc.remoteDescription) {
+          pendingRemote.current.push(payload.candidate);
+          return;
+        }
         try {
           await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
         } catch { /* ignore */ }
@@ -81,6 +137,8 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
       })
       .subscribe(async (status) => {
         if (status !== "SUBSCRIBED") return;
+        // Announce readiness so the peer can (re)flush its buffered ICE.
+        channel.send({ type: "broadcast", event: "hello", payload: { from: myId } });
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
@@ -100,6 +158,7 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
             await pc.setLocalDescription(answer);
             channel.send({ type: "broadcast", event: "answer", payload: { from: myId, answer } });
             setPhase("connecting");
+            await applyPendingRemote();
           }
         } catch (e) {
           console.error("call setup failed", e);
