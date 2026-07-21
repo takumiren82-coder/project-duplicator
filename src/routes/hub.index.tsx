@@ -18,7 +18,11 @@ import {
   extractReply,
   getDeletedForMe,
   isDeleted,
+  isEdited,
+  isStatusLike,
   previewOf,
+  stripEdit,
+  withEditMark,
   type ReplyRef,
 } from "@/lib/msg-meta";
 import { MessageActionSheet } from "@/components/MessageActionSheet";
@@ -128,10 +132,28 @@ function PrivateHub() {
   const touchStartY = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
   const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
   // Live "last seen" ticker + last partner activity timestamp (ms).
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [partnerLastActive, setPartnerLastActive] = useState<number>(0);
+
+  // Pending reply-ref stashed by the Status page's "Comment" button. Load it
+  // once when the chat room is opened so tapping Comment on a status opens
+  // the chat with the status already quoted in the composer.
+  useEffect(() => {
+    if (!openChat) return;
+    try {
+      const raw = sessionStorage.getItem("nealth_pending_reply");
+      if (!raw) return;
+      sessionStorage.removeItem("nealth_pending_reply");
+      const parsed = JSON.parse(raw) as Message;
+      if (parsed && parsed.id && parsed.content) {
+        setReplyTo(parsed);
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }
+    } catch { /* ignore */ }
+  }, [openChat]);
 
   // Navigate helpers for the inbox <-> chat room transition (search-param
   // driven so tapping the Chat tab always returns to the inbox without
@@ -287,6 +309,7 @@ function PrivateHub() {
     for (const m of messages) {
       const isJoin = m.content.startsWith(JOIN_MARK);
       const dpMsg = isDp(m.content);
+      const likeMsg = isStatusLike(m.content);
       if (m.sender !== myId) {
         present = true;
         if (isJoin) {
@@ -294,7 +317,7 @@ function PrivateHub() {
           if (n) pName = n;
         }
       }
-      if (!isJoin && !dpMsg && !deletedForMe.has(m.id)) visible.push(m);
+      if (!isJoin && !dpMsg && !likeMsg && !deletedForMe.has(m.id)) visible.push(m);
     }
     return { partnerPresent: present, partnerName: pName, visibleMessages: visible };
   }, [messages, myId, deletedForMe]);
@@ -401,6 +424,21 @@ function PrivateHub() {
   const send = async () => {
     const content = text.trim();
     if (!content || !room) return;
+    // Edit path: update the message in-place instead of inserting a new one.
+    if (editing) {
+      const target = editing;
+      setEditing(null);
+      setText("");
+      const { reply: oldReply } = extractReply(target.content);
+      const nextBody = withEditMark(content);
+      const wire = oldReply
+        ? encodeReply(oldReply, nextBody)
+        : nextBody;
+      setMessages((prev) => prev.map((p) => (p.id === target.id ? { ...p, content: wire } : p)));
+      const { error } = await supabase.from("messages").update({ content: wire }).eq("id", target.id);
+      if (error) console.error("Edit failed:", error.message);
+      return;
+    }
     setText("");
     const reply = replyTo;
     setReplyTo(null);
@@ -600,6 +638,15 @@ function PrivateHub() {
       .update({ content: DEL_MARK })
       .eq("id", m.id);
     if (error) console.error("Delete-for-everyone failed:", error.message);
+  };
+
+  const beginEdit = (m: Message) => {
+    const { body } = extractReply(m.content);
+    if (typeof body !== "string" || body === DEL_MARK || isMedia(body)) return;
+    setEditing(m);
+    setReplyTo(null);
+    setText(stripEdit(body));
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   // ---- Step 1: ask for name ----
