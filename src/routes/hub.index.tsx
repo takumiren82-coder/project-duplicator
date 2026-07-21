@@ -886,7 +886,9 @@ function PrivateHub() {
           const dragging = swipeId === m.id;
           const { reply, body } = extractReply(m.content);
           const deleted = body === DEL_MARK;
-          const mediaPayload = !deleted && isMedia(body) ? decodeMedia(body) : null;
+          const edited = !deleted && isEdited(m.content);
+          const displayBody = edited ? stripEdit(body) : body;
+          const mediaPayload = !deleted && isMedia(displayBody) ? decodeMedia(displayBody) : null;
           return (
             <div
               key={m.id}
@@ -922,13 +924,14 @@ function PrivateHub() {
                 ) : mediaPayload ? (
                   <MediaBubble messageId={m.id} media={mediaPayload} mine={mine} />
                 ) : (
-                  <p className="whitespace-pre-wrap break-words">{body}</p>
+                  <p className="whitespace-pre-wrap break-words">{displayBody}</p>
                 )}
                 <span
                   className={`mt-0.5 flex items-center justify-end gap-1 text-[9px] ${
                     mine ? "text-white/70" : "text-muted-foreground"
                   }`}
                 >
+                  {edited && <span className="italic opacity-70">edited</span>}
                   {formatIST(m.created_at)}
                   {mine && <Ticks read={!!m.read_at} delivered={partnerPresent} />}
                 </span>
@@ -959,6 +962,22 @@ function PrivateHub() {
             <button
               onClick={() => setReplyTo(null)}
               aria-label="Cancel reply"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+        {editing && (
+          <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5">
+            <span className="h-7 w-1 shrink-0 rounded-full bg-amber-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold text-amber-300">Editing message</p>
+              <p className="truncate text-[11px] text-muted-foreground">{previewOf(editing.content)}</p>
+            </div>
+            <button
+              onClick={() => { setEditing(null); setText(""); }}
+              aria-label="Cancel edit"
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
@@ -1074,12 +1093,15 @@ function PrivateHub() {
         const { body } = extractReply(actionMsg.content);
         const deleted = body === DEL_MARK;
         const canCopy = !deleted && !isMedia(body);
+        const canEdit = !deleted && !isMedia(body) && actionMsg.sender === myId;
         return (
           <MessageActionSheet
             mine={actionMsg.sender === myId && !deleted}
             canCopy={canCopy}
+            canEdit={canEdit}
             onReply={() => !deleted && startReply(actionMsg)}
             onCopy={() => { if (canCopy) navigator.clipboard.writeText(body).catch(() => {}); }}
+            onEdit={() => beginEdit(actionMsg)}
             onDeleteForMe={() => deleteForMe(actionMsg)}
             onDeleteForEveryone={() => deleteForEveryone(actionMsg)}
             onClose={() => setActionMsg(null)}
