@@ -7,6 +7,12 @@ import { MEDIA_MARK, decodeMedia } from "./media-msg";
 export const DEL_MARK = "\u0004DEL\u0004"; // whole content == this → deleted for everyone
 export const REPLY_MARK = "\u0003REPLY\u0003";
 export const REPLY_END = "\u0003END\u0003";
+// Trailing sentinel appended to the body of an edited message so both peers
+// can render "(Edited)" without any schema change.
+export const EDIT_MARK = "\u0006EDITED\u0006";
+// Whole content sentinel for status-like pings. Filtered out of chat.
+// Format: LIKE_MARK + statusId
+export const LIKE_MARK = "\u0007LIKE\u0007";
 
 export interface ReplyRef {
   id: string;
@@ -38,9 +44,35 @@ export function isDeleted(content: string): boolean {
   return body === DEL_MARK;
 }
 
+export function isEdited(content: string): boolean {
+  const { body } = extractReply(content);
+  return typeof body === "string" && body.endsWith(EDIT_MARK) && body !== DEL_MARK;
+}
+
+export function stripEdit(body: string): string {
+  return body.endsWith(EDIT_MARK) ? body.slice(0, -EDIT_MARK.length) : body;
+}
+
+export function withEditMark(body: string): string {
+  return body.endsWith(EDIT_MARK) ? body : body + EDIT_MARK;
+}
+
+export function isStatusLike(content: string): boolean {
+  return typeof content === "string" && content.startsWith(LIKE_MARK);
+}
+
+export function decodeStatusLike(content: string): string {
+  return content.startsWith(LIKE_MARK) ? content.slice(LIKE_MARK.length) : "";
+}
+
+export function encodeStatusLike(statusId: string): string {
+  return LIKE_MARK + statusId;
+}
+
 /** Short preview used in reply chips, inbox last-message row, etc. */
 export function previewOf(content: string): string {
-  const { body } = extractReply(content);
+  const { body: raw } = extractReply(content);
+  const body = typeof raw === "string" ? stripEdit(raw) : raw;
   if (body === DEL_MARK) return "🚫 This message was deleted";
   if (typeof body === "string" && body.startsWith(MEDIA_MARK)) {
     const p = decodeMedia(body);
