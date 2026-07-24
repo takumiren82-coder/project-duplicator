@@ -1144,3 +1144,101 @@ function AvatarImpl({ name, url, size = 44 }: { name: string; url: string | null
     </span>
   );
 }
+
+// ---------------- Composer (isolated for typing perf) ----------------
+// Input text lives locally so parent state (messages, presence, ticks) can
+// change without re-rendering the input on every keystroke.
+
+export interface ComposerHandle {
+  setText: (t: string) => void;
+  appendText: (t: string) => void;
+  focus: () => void;
+}
+
+interface ChatComposerProps {
+  emojiOpen: boolean;
+  onSend: (text: string) => void;
+  onTyping: () => void;
+  onOpenAttach: () => void;
+  onToggleEmoji: () => void;
+  onStartRecording: () => void;
+}
+
+const ChatComposer = memo(
+  forwardRef<ComposerHandle, ChatComposerProps>(function ChatComposer(
+    { emojiOpen, onSend, onTyping, onOpenAttach, onToggleEmoji, onStartRecording },
+    ref,
+  ) {
+    const [text, setText] = useState("");
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        setText: (t: string) => setText(t),
+        appendText: (t: string) => setText((prev) => prev + t),
+        focus: () => inputRef.current?.focus(),
+      }),
+      [],
+    );
+
+    const submit = () => {
+      const t = text.trim();
+      if (!t) {
+        onStartRecording();
+        return;
+      }
+      setText("");
+      onSend(t);
+    };
+
+    const hasText = text.trim().length > 0;
+
+    return (
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <div className="flex flex-1 items-center gap-1.5 rounded-full border border-border/60 bg-card/60 py-1.5 pl-1.5 pr-2.5">
+          <button
+            onClick={onOpenAttach}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gold transition-colors hover:bg-secondary/60"
+            aria-label="Add attachment"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+          <input
+            ref={inputRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              onTyping();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Type a message…"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="on"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            onClick={onToggleEmoji}
+            className={`shrink-0 transition-colors ${emojiOpen ? "text-gold" : "text-muted-foreground hover:text-gold"}`}
+            aria-label="Emoji"
+          >
+            <Smile className="h-4 w-4" />
+          </button>
+        </div>
+        <button
+          onClick={submit}
+          aria-label={hasText ? "Send" : "Voice message"}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white gold-btn"
+        >
+          {hasText ? <Send className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        </button>
+      </div>
+    );
+  }),
+);
