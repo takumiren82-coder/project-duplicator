@@ -1,5 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Plus, Send, ArrowLeft, Phone, Video, Copy, Check, CheckCheck, X, Smile, Mic, MoreVertical } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { BottomNav } from "@/components/BottomNav";
@@ -97,14 +106,15 @@ function PrivateHub() {
   const [nameInput, setNameInput] = useState("");
   const [room, setRoom] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText] = useState("");
+  // NOTE: composer input text lives inside <ChatComposer /> for typing perf;
+  // parent only holds edit/reply state.
   const [joinCode, setJoinCode] = useState("");
   const [copied, setCopied] = useState(false);
   const [joined, setJoined] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<ComposerHandle>(null);
   const restored = useRef(false);
   const announced = useRef<string | null>(null);
   const [savedPartner, setSavedPartner] = useState<string>("");
@@ -112,6 +122,8 @@ function PrivateHub() {
   const [partnerTyping, setPartnerTyping] = useState(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
+  // Presence-derived: is the partner currently subscribed to the room channel?
+  const [partnerSubscribed, setPartnerSubscribed] = useState(false);
   // Media / emoji / camera / voice / call UI state
   const [attachOpen, setAttachOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -150,7 +162,7 @@ function PrivateHub() {
       const parsed = JSON.parse(raw) as Message;
       if (parsed && parsed.id && parsed.content) {
         setReplyTo(parsed);
-        setTimeout(() => inputRef.current?.focus(), 0);
+        setTimeout(() => composerRef.current?.focus(), 0);
       }
     } catch { /* ignore */ }
   }, [openChat]);
@@ -198,7 +210,7 @@ function PrivateHub() {
     })();
 
     const channel = supabase
-      .channel(`room:${room}`)
+      .channel(`room:${room}`, { config: { presence: { key: myId } } })
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "messages", filter: `room_code=eq.${room}` },
@@ -223,7 +235,16 @@ function PrivateHub() {
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
         typingTimeout.current = setTimeout(() => setPartnerTyping(false), 3000);
       })
-      .subscribe();
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState() as Record<string, unknown>;
+        const others = Object.keys(state).filter((k) => k !== myId);
+        setPartnerSubscribed(others.length > 0);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ user: myId, at: Date.now() });
+        }
+      });
 
     channelRef.current = channel;
 
@@ -232,6 +253,7 @@ function PrivateHub() {
       channelRef.current = null;
       if (typingTimeout.current) clearTimeout(typingTimeout.current);
       setPartnerTyping(false);
+      setPartnerSubscribed(false);
       supabase.removeChannel(channel);
     };
   }, [room, myId]);
@@ -421,14 +443,13 @@ function PrivateHub() {
     }
   };
 
-  const send = async () => {
-    const content = text.trim();
+  const send = async (raw: string) => {
+    const content = raw.trim();
     if (!content || !room) return;
     // Edit path: update the message in-place instead of inserting a new one.
     if (editing) {
       const target = editing;
       setEditing(null);
-      setText("");
       const { reply: oldReply } = extractReply(target.content);
       const nextBody = withEditMark(content);
       const wire = oldReply
@@ -439,7 +460,6 @@ function PrivateHub() {
       if (error) console.error("Edit failed:", error.message);
       return;
     }
-    setText("");
     const reply = replyTo;
     setReplyTo(null);
     // stop broadcasting typing once a message is sent
@@ -550,7 +570,7 @@ function PrivateHub() {
     await broadcastDp(room, myId, "");
   };
 
-  const insertEmoji = (e: string) => setText((t) => t + e);
+  const insertEmoji = (e: string) => composerRef.current?.appendText(e);
 
   // ---- Incoming call listener (subscribes per room) ----
   useEffect(() => {
@@ -575,8 +595,9 @@ function PrivateHub() {
   }, [room, myId, call]);
 
   // Broadcast a lightweight "typing" event to the partner (throttled).
-  const handleTyping = (value: string) => {
-    setText(value);
+  // Stable across renders so the memoized composer doesn't re-render on
+  // every parent state change.
+  const handleTyping = useCallback(() => {
     if (!room || !channelRef.current) return;
     const now = Date.now();
     if (now - lastTypingSent.current < 1200) return;
@@ -586,13 +607,13 @@ function PrivateHub() {
       event: "typing",
       payload: { sender: myId, typing: true },
     });
-  };
+  }, [room, myId]);
 
   // ---- Swipe-to-reply gesture (received bubbles only) ----
   const startReply = (m: Message) => {
     setReplyTo(m);
     // focus the composer right after the reply bar renders
-    setTimeout(() => inputRef.current?.focus(), 0);
+    setTimeout(() => composerRef.current?.focus(), 0);
   };
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -645,8 +666,8 @@ function PrivateHub() {
     if (typeof body !== "string" || body === DEL_MARK || isMedia(body)) return;
     setEditing(m);
     setReplyTo(null);
-    setText(stripEdit(body));
-    setTimeout(() => inputRef.current?.focus(), 0);
+    composerRef.current?.setText(stripEdit(body));
+    setTimeout(() => composerRef.current?.focus(), 0);
   };
 
   // ---- Step 1: ask for name ----
@@ -933,7 +954,7 @@ function PrivateHub() {
                 >
                   {edited && <span className="italic opacity-70">edited</span>}
                   {formatIST(m.created_at)}
-                  {mine && <Ticks read={!!m.read_at} delivered={partnerPresent} />}
+                {mine && <Ticks read={!!m.read_at} delivered={partnerSubscribed || partnerOnline} />}
                 </span>
               </div>
             </div>
@@ -976,7 +997,7 @@ function PrivateHub() {
               <p className="truncate text-[11px] text-muted-foreground">{previewOf(editing.content)}</p>
             </div>
             <button
-              onClick={() => { setEditing(null); setText(""); }}
+              onClick={() => { setEditing(null); composerRef.current?.setText(""); }}
               aria-label="Cancel edit"
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
             >
@@ -984,45 +1005,21 @@ function PrivateHub() {
             </button>
           </div>
         )}
-        <div className="flex items-center gap-2 px-2.5 py-2">
-          {recording ? (
+        {recording ? (
+          <div className="flex items-center gap-2 px-2.5 py-2">
             <VoiceRecorder onCancel={() => setRecording(false)} onSend={handleVoiceSend} />
-          ) : (
-            <>
-              <div className="flex flex-1 items-center gap-1.5 rounded-full border border-border/60 bg-card/60 py-1.5 pl-1.5 pr-2.5">
-                <button
-                  onClick={() => { setEmojiOpen(false); setAttachOpen(true); }}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gold transition-colors hover:bg-secondary/60"
-                  aria-label="Add attachment"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-                <input
-                  ref={inputRef}
-                  value={text}
-                  onChange={(e) => handleTyping(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && send()}
-                  placeholder="Type a message…"
-                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
-                />
-                <button
-                  onClick={() => setEmojiOpen((v) => !v)}
-                  className={`shrink-0 transition-colors ${emojiOpen ? "text-gold" : "text-muted-foreground hover:text-gold"}`}
-                  aria-label="Emoji"
-                >
-                  <Smile className="h-4 w-4" />
-                </button>
-              </div>
-              <button
-                onClick={() => (text.trim() ? send() : setRecording(true))}
-                aria-label={text.trim() ? "Send" : "Voice message"}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white gold-btn"
-              >
-                {text.trim() ? <Send className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-              </button>
-            </>
-          )}
-        </div>
+          </div>
+        ) : (
+          <ChatComposer
+            ref={composerRef}
+            emojiOpen={emojiOpen}
+            onSend={send}
+            onTyping={handleTyping}
+            onOpenAttach={() => { setEmojiOpen(false); setAttachOpen(true); }}
+            onToggleEmoji={() => setEmojiOpen((v) => !v)}
+            onStartRecording={() => setRecording(true)}
+          />
+        )}
         {emojiOpen && !recording && (
           <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />
         )}
@@ -1147,3 +1144,101 @@ function AvatarImpl({ name, url, size = 44 }: { name: string; url: string | null
     </span>
   );
 }
+
+// ---------------- Composer (isolated for typing perf) ----------------
+// Input text lives locally so parent state (messages, presence, ticks) can
+// change without re-rendering the input on every keystroke.
+
+export interface ComposerHandle {
+  setText: (t: string) => void;
+  appendText: (t: string) => void;
+  focus: () => void;
+}
+
+interface ChatComposerProps {
+  emojiOpen: boolean;
+  onSend: (text: string) => void;
+  onTyping: () => void;
+  onOpenAttach: () => void;
+  onToggleEmoji: () => void;
+  onStartRecording: () => void;
+}
+
+const ChatComposer = memo(
+  forwardRef<ComposerHandle, ChatComposerProps>(function ChatComposer(
+    { emojiOpen, onSend, onTyping, onOpenAttach, onToggleEmoji, onStartRecording },
+    ref,
+  ) {
+    const [text, setText] = useState("");
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        setText: (t: string) => setText(t),
+        appendText: (t: string) => setText((prev) => prev + t),
+        focus: () => inputRef.current?.focus(),
+      }),
+      [],
+    );
+
+    const submit = () => {
+      const t = text.trim();
+      if (!t) {
+        onStartRecording();
+        return;
+      }
+      setText("");
+      onSend(t);
+    };
+
+    const hasText = text.trim().length > 0;
+
+    return (
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <div className="flex flex-1 items-center gap-1.5 rounded-full border border-border/60 bg-card/60 py-1.5 pl-1.5 pr-2.5">
+          <button
+            onClick={onOpenAttach}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gold transition-colors hover:bg-secondary/60"
+            aria-label="Add attachment"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+          <input
+            ref={inputRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              onTyping();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Type a message…"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="on"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            onClick={onToggleEmoji}
+            className={`shrink-0 transition-colors ${emojiOpen ? "text-gold" : "text-muted-foreground hover:text-gold"}`}
+            aria-label="Emoji"
+          >
+            <Smile className="h-4 w-4" />
+          </button>
+        </div>
+        <button
+          onClick={submit}
+          aria-label={hasText ? "Send" : "Voice message"}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white gold-btn"
+        >
+          {hasText ? <Send className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        </button>
+      </div>
+    );
+  }),
+);
