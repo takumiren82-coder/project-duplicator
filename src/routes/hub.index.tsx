@@ -997,7 +997,7 @@ function PrivateHub() {
               <p className="truncate text-[11px] text-muted-foreground">{previewOf(editing.content)}</p>
             </div>
             <button
-              onClick={() => { setEditing(null); setText(""); }}
+              onClick={() => { setEditing(null); composerRef.current?.setText(""); }}
               aria-label="Cancel edit"
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
             >
