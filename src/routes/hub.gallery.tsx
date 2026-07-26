@@ -1,6 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Heart, Plus, Download, X, Trash2 } from "lucide-react";
+import { Plus, Download, X, Trash2, ArrowLeft, SlidersHorizontal, Settings, Lock } from "lucide-react";
 import { supabase, GALLERY_BUCKET } from "@/lib/supabase";
 import { BottomNav } from "@/components/BottomNav";
 import { getMyId, getRoom } from "@/lib/identity";
@@ -16,6 +16,7 @@ interface GItem {
 }
 
 function PrivateGallery() {
+  const navigate = useNavigate();
   const [ready, setReady] = useState(false);
   const [room, setRoom] = useState("");
   const [myId, setMyId] = useState("");
@@ -24,6 +25,8 @@ function PrivateGallery() {
   const [active, setActive] = useState<GItem | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState("All");
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
