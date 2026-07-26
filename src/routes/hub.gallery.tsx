@@ -243,43 +243,64 @@ function Section({
   onTap,
   onDelete,
   empty,
+  revealed,
+  onReveal,
 }: {
   title?: string;
   items: GItem[];
   onTap: (i: GItem) => void;
   onDelete?: (i: GItem) => void;
   empty?: string;
+  revealed: Set<string>;
+  onReveal: (path: string) => void;
 }) {
   return (
     <div>
       {title && (
-        <h2 className="mb-3 font-heading text-base font-semibold tracking-wide text-foreground">{title}</h2>
+        <h2 className="mb-3 font-heading text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>
       )}
       {items.length === 0 ? (
-        <p className="ornate-card px-4 py-6 text-center text-xs text-muted-foreground">
+        <p className="ember-panel px-4 py-6 text-center text-xs text-muted-foreground">
           {empty ?? "No items yet."}
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {items.map((it) => (
-            <div key={it.name} className="relative">
-              <button
-                onClick={() => onTap(it)}
-                className="ornate-card aspect-square w-full overflow-hidden p-0.5"
-              >
-                <img src={it.url} alt={it.name} loading="lazy" className="h-full w-full rounded object-cover" />
-              </button>
-              {onDelete && (
+        <div className="grid grid-cols-4 gap-1.5">
+          {items.map((it, idx) => {
+            const locked = idx < 4 && !revealed.has(it.path);
+            return (
+              <div key={it.name} className="relative">
                 <button
-                  onClick={() => onDelete(it)}
-                  aria-label="Delete"
-                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-rose-400 backdrop-blur transition hover:bg-black/90"
+                  onClick={() => (locked ? onReveal(it.path) : onTap(it))}
+                  className={`relative aspect-square w-full overflow-hidden rounded-xl ${
+                    locked
+                      ? "border border-primary/60 shadow-[0_0_18px_-6px_rgba(255,46,63,0.8)]"
+                      : "border border-white/5"
+                  }`}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <img
+                    src={it.url}
+                    alt={it.name}
+                    loading="lazy"
+                    className={`h-full w-full object-cover transition ${locked ? "scale-110 blur-[14px] brightness-[0.55]" : ""}`}
+                  />
+                  {locked && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <Lock className="h-5 w-5 text-primary drop-shadow-[0_0_8px_rgba(255,46,63,0.9)]" />
+                    </span>
+                  )}
                 </button>
-              )}
-            </div>
-          ))}
+                {onDelete && !locked && (
+                  <button
+                    onClick={() => onDelete(it)}
+                    aria-label="Delete"
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-primary backdrop-blur"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
