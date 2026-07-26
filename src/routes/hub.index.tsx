@@ -149,6 +149,10 @@ function PrivateHub() {
   // Live "last seen" ticker + last partner activity timestamp (ms).
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [partnerLastActive, setPartnerLastActive] = useState<number>(0);
+  // Inbox (chat list) UI state — filter bar + search field.
+  const [inboxFilter, setInboxFilter] = useState("All");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
 
   // Pending reply-ref stashed by the Status page's "Comment" button. Load it
   // once when the chat room is opened so tapping Comment on a status opens
