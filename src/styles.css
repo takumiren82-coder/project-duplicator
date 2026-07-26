@@ -10,11 +10,11 @@
 }
 
 @utility font-heading {
-  font-family: "Cinzel", "Sora", serif;
-  letter-spacing: 0.02em;
+  font-family: "Sora", sans-serif;
+  letter-spacing: 0;
 }
 @utility font-body {
-  font-family: "Lato", "Manrope", sans-serif;
+  font-family: "Manrope", sans-serif;
 }
 
 /*
