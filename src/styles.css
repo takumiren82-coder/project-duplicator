@@ -274,20 +274,20 @@
 }
 .animate-loading-bar { animation: loading-bar 3s ease-in-out forwards; }
 
-/* Private Hub surface — premium purple-to-black gradient (all hub screens) */
+/* Private Hub surface — EmberChat near-black with a soft ember bloom */
 .hub-chat-bg,
 .hub-screen-bg {
   background:
-    radial-gradient(120% 60% at 50% 0%, color-mix(in oklab, #a73bff 24%, transparent) 0%, transparent 55%),
-    linear-gradient(180deg, #2a1046 0%, #1b0b22 45%, #0d0518 100%);
+    radial-gradient(120% 55% at 50% 0%, color-mix(in oklab, #ff2e3f 12%, transparent) 0%, transparent 60%),
+    linear-gradient(180deg, #0b0a0d 0%, #08080a 40%, #050506 100%);
 }
 .hub-bubble-mine {
-  background-image: linear-gradient(135deg, #ff3ea8 0%, #ff6ccf 100%);
-  box-shadow: 0 6px 18px -8px color-mix(in oklab, #ff3ea8 65%, transparent);
+  background-image: linear-gradient(135deg, #ff2e3f 0%, #d31220 100%);
+  box-shadow: 0 6px 18px -10px color-mix(in oklab, #ff2e3f 75%, transparent);
 }
 .hub-bubble-theirs {
-  background: color-mix(in oklab, #2a1140 85%, #000 15%);
-  border: 1px solid color-mix(in oklab, #a73bff 22%, transparent);
+  background: #141418;
+  border: 1px solid color-mix(in oklab, #ffffff 8%, transparent);
 }
 
 /* Typing indicator — 3-dot wave */
