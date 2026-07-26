@@ -57,11 +57,11 @@ export function PanicButton() {
       onMouseDown={(e) => onDown(e.clientX, e.clientY)}
       onTouchStart={(e) => onDown(e.touches[0].clientX, e.touches[0].clientY)}
       style={{ left: pos.x, top: pos.y }}
-      className="fixed z-50 flex h-14 w-14 touch-none select-none flex-col items-center justify-center rounded-full text-center shadow-[0_8px_24px_-6px_rgba(255,62,168,0.65)]"
+      className="fixed z-50 flex h-14 w-14 touch-none select-none flex-col items-center justify-center rounded-full text-center shadow-[0_8px_24px_-6px_rgba(255,46,63,0.7)]"
     >
       <span
         className="absolute inset-0 rounded-full"
-        style={{ background: "linear-gradient(135deg, #ff3ea8 0%, #ff6ccf 100%)" }}
+        style={{ background: "linear-gradient(135deg, #ff2e3f 0%, #d31220 100%)" }}
       />
       <span className="relative z-10 font-heading text-[8.5px] font-extrabold leading-tight tracking-wide text-white">
         PANIC
