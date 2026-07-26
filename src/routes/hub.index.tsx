@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Plus, Send, ArrowLeft, Phone, Video, Copy, Check, CheckCheck, X, Smile, Mic, MoreVertical } from "lucide-react";
+import { Plus, Send, ArrowLeft, Phone, Video, Copy, Check, CheckCheck, X, Smile, Mic, MoreVertical, Camera, Search, Flame } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { BottomNav } from "@/components/BottomNav";
 import { AttachSheet, type ViewChoice } from "@/components/AttachSheet";
