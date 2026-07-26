@@ -73,7 +73,7 @@ export function encodeStatusLike(statusId: string): string {
 export function previewOf(content: string): string {
   const { body: raw } = extractReply(content);
   const body = typeof raw === "string" ? stripEdit(raw) : raw;
-  if (body === DEL_MARK) return "🚫 This message was deleted";
+  if (body === DEL_MARK) return "🔥 This ember has faded";
   if (typeof body === "string" && body.startsWith(MEDIA_MARK)) {
     const p = decodeMedia(body);
     if (!p) return "Media";
