@@ -206,6 +206,29 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
     setMuted(!!enabled);
   };
 
+  // Loud / earpiece toggle — keeps remote audio audible either way.
+  const toggleLoud = () => {
+    const el = remoteAudioRef.current;
+    const next = !loud;
+    if (el) {
+      el.volume = next ? 1 : 0.45;
+      const anyEl = el as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+      anyEl.setSinkId?.(next ? "" : "").catch(() => {});
+    }
+    setLoud(next);
+  };
+
+  // In-call notes, stored locally per room (no backend change).
+  const NOTE_KEY = `ember_call_note_${room}`;
+  const openNote = () => {
+    try { setNote(localStorage.getItem(NOTE_KEY) ?? ""); } catch { /* ignore */ }
+    setNoteOpen(true);
+  };
+  const saveNote = (v: string) => {
+    setNote(v);
+    try { localStorage.setItem(NOTE_KEY, v); } catch { /* ignore */ }
+  };
+
   const toggleCam = () => {
     const tracks = localStreamRef.current?.getVideoTracks() ?? [];
     if (!tracks.length) return;
