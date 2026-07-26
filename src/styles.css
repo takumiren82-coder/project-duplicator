@@ -80,32 +80,32 @@
 }
 
 :root {
-  --radius: 0.75rem;
-  /* Exact reference palette: #FF6CCF / #FF3EA8 / #A73BFF / #1B0B22 */
-  --gold: #ff3ea8;
-  --gold-bright: #ff6ccf;
-  --gold-dim: #a73bff;
-  --background: #1b0b22;
-  --foreground: #f6ecff;
-  --card: #2a1140;
-  --card-foreground: #f6ecff;
-  --popover: #22102f;
-  --popover-foreground: #f6ecff;
-  --primary: #ff3ea8;
+  --radius: 1rem;
+  /* EmberChat reference palette: ember red on near-black */
+  --gold: #ff2e3f;
+  --gold-bright: #ff5b5b;
+  --gold-dim: #a3121c;
+  --background: #07070a;
+  --foreground: #f2f2f4;
+  --card: #101013;
+  --card-foreground: #f2f2f4;
+  --popover: #101013;
+  --popover-foreground: #f2f2f4;
+  --primary: #ff2e3f;
   --primary-foreground: #ffffff;
-  --secondary: #331355;
-  --secondary-foreground: #f6ecff;
-  --muted: #2a1140;
-  --muted-foreground: #c8b3e6;
-  --accent: #a73bff;
+  --secondary: #17171b;
+  --secondary-foreground: #f2f2f4;
+  --muted: #131317;
+  --muted-foreground: #8b8b95;
+  --accent: #ff2e3f;
   --accent-foreground: #ffffff;
-  --destructive: oklch(0.6 0.22 20);
+  --destructive: #ff2e3f;
   --destructive-foreground: #ffffff;
-  --border: color-mix(in oklab, #a73bff 40%, transparent);
-  --input: color-mix(in oklab, #a73bff 30%, transparent);
-  --ring: #ff3ea8;
-  --gradient-primary: linear-gradient(135deg, #a73bff 0%, #ff3ea8 55%, #ff6ccf 100%);
-  --shadow-glow: 0 0 26px -6px color-mix(in oklab, #ff3ea8 60%, transparent);
+  --border: color-mix(in oklab, #ff2e3f 22%, transparent);
+  --input: color-mix(in oklab, #ff2e3f 18%, transparent);
+  --ring: #ff2e3f;
+  --gradient-primary: linear-gradient(135deg, #ff2e3f 0%, #ff5b5b 100%);
+  --shadow-glow: 0 0 22px -6px color-mix(in oklab, #ff2e3f 65%, transparent);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
