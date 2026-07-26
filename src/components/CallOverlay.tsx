@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { PhoneOff, Mic, MicOff, Video as VideoIcon, VideoOff, SwitchCamera } from "lucide-react";
+import {
+  PhoneOff,
+  Mic,
+  MicOff,
+  Video as VideoIcon,
+  VideoOff,
+  SwitchCamera,
+  Volume2,
+  VolumeX,
+  NotebookPen,
+  X,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // WebRTC audio call over Supabase realtime broadcast for SDP/ICE exchange.
@@ -47,6 +58,9 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [secs, setSecs] = useState(0);
   const [swapped, setSwapped] = useState(false);
+  const [loud, setLoud] = useState(true);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState("");
   const [pipPos, setPipPos] = useState<{ x: number; y: number }>({ x: 16, y: 16 });
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
