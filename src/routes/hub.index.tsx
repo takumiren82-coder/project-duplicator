@@ -765,58 +765,177 @@ function PrivateHub() {
       : last
         ? previewOf(last.content)
         : "Tap to start chatting";
+    const filters = ["All", "Unread", "Groups", "Favorites", "Requests"] as const;
+    const matchesSearch =
+      !searchText.trim() || displayName.toLowerCase().includes(searchText.trim().toLowerCase());
+    const matchesFilter =
+      inboxFilter === "All" || inboxFilter === "Favorites"
+        ? true
+        : inboxFilter === "Unread"
+          ? unread > 0
+          : false;
+    const showRow = matchesSearch && matchesFilter;
     return (
       <div className="hub-screen-bg flex h-[100dvh] w-screen flex-col overflow-hidden">
-        <header className="shrink-0 px-4 pb-2 pt-4">
-          <h1 className="font-heading text-xl font-bold tracking-wide text-gold">Chats</h1>
+        {/* Header */}
+        <header className="flex shrink-0 items-center justify-between px-4 pb-3 pt-4">
+          <h1 className="font-heading text-[22px] font-extrabold tracking-tight text-primary">
+            EmberChat
+          </h1>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate({ to: "/hub/status" })}
+              aria-label="Camera"
+              className="text-foreground/85"
+            >
+              <Camera className="h-[21px] w-[21px]" strokeWidth={1.7} />
+            </button>
+            <button
+              onClick={() => setSearchOpen((s) => !s)}
+              aria-label="Search"
+              className={searchOpen ? "text-primary" : "text-foreground/85"}
+            >
+              <Search className="h-[21px] w-[21px]" strokeWidth={1.7} />
+            </button>
+          </div>
         </header>
-        <div className="flex-1 overflow-y-auto px-2">
-          <button
-            onClick={openRoom}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-secondary/40"
-          >
-            <div className="relative shrink-0">
-              {partnerDp ? (
-                <img
-                  src={partnerDp}
-                  alt={displayName}
-                  className="h-11 w-11 rounded-full border-2 border-gold object-cover"
-                />
-              ) : (
-                <span className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-gold bg-secondary font-heading text-gold">
-                  {displayName.charAt(0).toUpperCase()}
+
+        {searchOpen && (
+          <div className="shrink-0 px-4 pb-2">
+            <input
+              autoFocus
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search chats"
+              className="w-full rounded-full border border-border bg-card px-4 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        )}
+
+        {/* Snap circles */}
+        <div className="shrink-0 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
+          <div className="flex gap-4">
+            {[
+              { key: "you", label: "You", dp: myDp, nm: name ?? "You", ring: true },
+              { key: "partner", label: displayName, dp: partnerDp, nm: displayName, ring: true },
+            ].map((p) => (
+              <button
+                key={p.key}
+                onClick={() => navigate({ to: "/hub/status" })}
+                className="flex w-[58px] shrink-0 flex-col items-center gap-1.5"
+              >
+                <span className={`ember-ring ${p.ring ? "" : "ember-ring-seen"} block`}>
+                  {p.dp ? (
+                    <img
+                      src={p.dp}
+                      alt={p.nm}
+                      className="h-[52px] w-[52px] rounded-full border-2 border-background object-cover"
+                    />
+                  ) : (
+                    <span className="flex h-[52px] w-[52px] items-center justify-center rounded-full border-2 border-background bg-secondary font-heading text-base font-semibold text-foreground">
+                      {p.nm.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </span>
-              )}
-              {(partnerOnline || partnerPresent) && (
-                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-400" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-heading text-sm font-semibold text-foreground">
-                  {displayName}
+                <span className="w-full truncate text-center text-[11px] text-muted-foreground">
+                  {p.label}
                 </span>
-                {last && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {formatIST(last.created_at)}
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 flex items-center justify-between gap-2">
-                <span
-                  className={`truncate text-xs ${partnerTyping ? "text-primary" : "text-muted-foreground"}`}
-                >
-                  {preview}
-                </span>
-                {unread > 0 && (
-                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Filter bar */}
+        <div className="shrink-0 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
+          <div className="flex gap-2">
+            {filters.map((f) => (
+              <button
+                key={f}
+                onClick={() => setInboxFilter(f)}
+                data-active={inboxFilter === f}
+                className="ember-chip flex items-center gap-1.5"
+              >
+                {f}
+                {f === "Unread" && unread > 0 && (
+                  <span
+                    className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                      inboxFilter === "Unread" ? "bg-white text-primary" : "bg-primary text-white"
+                    }`}
+                  >
                     {unread}
                   </span>
                 )}
-              </div>
-            </div>
-          </button>
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Chat list */}
+        <div className="flex-1 overflow-y-auto px-2">
+          {showRow ? (
+            <button
+              onClick={openRoom}
+              className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors active:bg-secondary/60"
+            >
+              <div className="relative shrink-0">
+                {partnerDp ? (
+                  <img
+                    src={partnerDp}
+                    alt={displayName}
+                    className="h-12 w-12 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary font-heading text-lg font-semibold text-foreground">
+                    {displayName.charAt(0).toUpperCase()}
+                  </span>
+                )}
+                {(partnerOnline || partnerPresent) && (
+                  <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-400" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-heading text-[15px] font-semibold text-foreground">
+                    {displayName}
+                  </span>
+                  {last && (
+                    <span
+                      className={`shrink-0 text-[11px] ${unread > 0 ? "text-primary" : "text-muted-foreground"}`}
+                    >
+                      {formatIST(last.created_at)}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span
+                    className={`truncate text-[13px] ${partnerTyping ? "text-primary" : "text-muted-foreground"}`}
+                  >
+                    {preview}
+                  </span>
+                  {unread > 0 && (
+                    <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+                      {unread}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </button>
+          ) : (
+            <p className="px-4 pt-8 text-center text-[13px] text-muted-foreground">
+              No conversations here.
+            </p>
+          )}
+        </div>
+
+        {/* FAB */}
+        <button
+          onClick={openRoom}
+          aria-label="New chat"
+          className="fixed bottom-[86px] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-[0_10px_28px_-8px_rgba(255,46,63,0.8)]"
+          style={{ background: "linear-gradient(135deg,#ff2e3f 0%,#d31220 100%)" }}
+        >
+          <Plus className="h-6 w-6" strokeWidth={2.4} />
+        </button>
         <div className="h-16 shrink-0" />
         <BottomNav active="chats" />
       </div>
