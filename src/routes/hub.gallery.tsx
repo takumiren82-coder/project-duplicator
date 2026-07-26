@@ -1,6 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Heart, Plus, Download, X, Trash2 } from "lucide-react";
+import { Plus, Download, X, Trash2, ArrowLeft, SlidersHorizontal, Settings, Lock } from "lucide-react";
 import { supabase, GALLERY_BUCKET } from "@/lib/supabase";
 import { BottomNav } from "@/components/BottomNav";
 import { getMyId, getRoom } from "@/lib/identity";
@@ -16,6 +16,7 @@ interface GItem {
 }
 
 function PrivateGallery() {
+  const navigate = useNavigate();
   const [ready, setReady] = useState(false);
   const [room, setRoom] = useState("");
   const [myId, setMyId] = useState("");
@@ -24,6 +25,8 @@ function PrivateGallery() {
   const [active, setActive] = useState<GItem | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState("All");
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -115,34 +118,101 @@ function PrivateGallery() {
     );
   }
 
+  const tabs = ["All", "Photos", "Videos", "Screenshots"];
+  const isVideo = (n: string) => /\.(mp4|mov|webm|m4v)$/i.test(n);
+  const filterItems = (items: GItem[]) =>
+    tab === "Videos" ? items.filter((i) => isVideo(i.name)) : tab === "Screenshots" ? [] : items.filter((i) => tab !== "Photos" || !isVideo(i.name));
+
   return (
     <div className="hub-screen-bg min-h-screen pb-28">
-      <div className="mx-auto max-w-2xl px-4 pt-6">
-        <h1 className="mb-5 text-center font-heading text-xl font-bold tracking-wide text-foreground">
-          Shared Gallery
-        </h1>
+      <div className="mx-auto max-w-2xl px-4 pt-4">
+        {/* Header */}
+        <header className="mb-4 flex items-center gap-3">
+          <button onClick={() => navigate({ to: "/hub" })} aria-label="Back" className="text-foreground">
+            <ArrowLeft className="h-5 w-5" strokeWidth={1.8} />
+          </button>
+          <h1 className="min-w-0 flex-1 truncate font-heading text-[19px] font-bold tracking-tight text-foreground">
+            Memory Vault
+          </h1>
+          <SlidersHorizontal className="h-5 w-5 text-foreground/80" strokeWidth={1.8} />
+          <Settings className="h-5 w-5 text-foreground/80" strokeWidth={1.8} />
+        </header>
 
-        <Section title="Partner's Safe Photos" items={partner} onTap={setActive} />
-
-        <div className="my-6 flex items-center justify-center gap-3">
-          <span className="h-px w-20 bg-gradient-to-r from-transparent to-gold" />
-          <Heart className="h-5 w-5 fill-gold text-gold" />
-          <span className="h-px w-20 bg-gradient-to-l from-transparent to-gold" />
+        {/* Connected bar */}
+        <div className="mb-4 flex items-center overflow-hidden rounded-xl border border-border bg-card">
+          <span className="flex-1 px-4 py-2.5 text-center text-[11px] font-semibold tracking-[0.08em] text-foreground">
+            CONNECTED (2/5)
+          </span>
+          <span className="h-6 w-px bg-border" />
+          <button
+            onClick={() => navigate({ to: "/hub" })}
+            className="flex-1 px-4 py-2.5 text-center text-[11px] font-semibold tracking-[0.08em] text-muted-foreground"
+          >
+            MANAGE
+          </button>
         </div>
 
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-heading text-base font-semibold tracking-wide text-foreground">Your Photos</h2>
+        {/* Connected people */}
+        <div className="mb-4 flex gap-4 overflow-x-auto [scrollbar-width:none]">
+          {[
+            { label: "You", items: mine },
+            { label: "Partner", items: partner },
+          ].map((p) => (
+            <div key={p.label} className="flex w-[58px] shrink-0 flex-col items-center gap-1.5">
+              <span className="ember-ring block">
+                {p.items[0] ? (
+                  <img
+                    src={p.items[0].url}
+                    alt={p.label}
+                    className="h-[52px] w-[52px] rounded-full border-2 border-background object-cover"
+                  />
+                ) : (
+                  <span className="flex h-[52px] w-[52px] items-center justify-center rounded-full border-2 border-background bg-secondary font-heading text-base font-semibold text-foreground">
+                    {p.label.charAt(0)}
+                  </span>
+                )}
+              </span>
+              <span className="w-full truncate text-center text-[11px] text-muted-foreground">{p.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Filter chips */}
+        <div className="mb-5 flex gap-2 overflow-x-auto [scrollbar-width:none]">
+          {tabs.map((t) => (
+            <button key={t} onClick={() => setTab(t)} data-active={tab === t} className="ember-chip">
+              {t}
+            </button>
+          ))}
           <button
             onClick={() => fileRef.current?.click()}
             disabled={uploading}
-            className="gold-btn flex items-center gap-1 rounded-md px-3 py-1.5 text-xs disabled:opacity-60"
+            className="ember-chip ml-auto flex items-center gap-1 disabled:opacity-60"
           >
             <Plus className="h-3.5 w-3.5" /> {uploading ? "UPLOADING…" : "ADD"}
           </button>
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={onUpload} />
         </div>
-        {error && <p className="mb-3 text-center text-xs text-rose-400">{error}</p>}
-        <Section items={mine} onTap={setActive} onDelete={onDelete} empty="No uploads yet — tap ADD." />
+        {error && <p className="mb-3 text-center text-xs text-primary">{error}</p>}
+
+        <Section
+          title="Today"
+          items={filterItems(mine)}
+          onTap={setActive}
+          onDelete={onDelete}
+          revealed={revealed}
+          onReveal={(p) => setRevealed((s) => new Set(s).add(p))}
+          empty="No uploads yet — tap ADD."
+        />
+        <div className="h-6" />
+        <Section
+          title="Yesterday"
+          items={filterItems(partner)}
+          onTap={setActive}
+          revealed={revealed}
+          onReveal={(p) => setRevealed((s) => new Set(s).add(p))}
+          empty="Nothing shared yet."
+        />
       </div>
 
       {active && (
@@ -173,43 +243,64 @@ function Section({
   onTap,
   onDelete,
   empty,
+  revealed,
+  onReveal,
 }: {
   title?: string;
   items: GItem[];
   onTap: (i: GItem) => void;
   onDelete?: (i: GItem) => void;
   empty?: string;
+  revealed: Set<string>;
+  onReveal: (path: string) => void;
 }) {
   return (
     <div>
       {title && (
-        <h2 className="mb-3 font-heading text-base font-semibold tracking-wide text-foreground">{title}</h2>
+        <h2 className="mb-3 font-heading text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>
       )}
       {items.length === 0 ? (
-        <p className="ornate-card px-4 py-6 text-center text-xs text-muted-foreground">
+        <p className="ember-panel px-4 py-6 text-center text-xs text-muted-foreground">
           {empty ?? "No items yet."}
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {items.map((it) => (
-            <div key={it.name} className="relative">
-              <button
-                onClick={() => onTap(it)}
-                className="ornate-card aspect-square w-full overflow-hidden p-0.5"
-              >
-                <img src={it.url} alt={it.name} loading="lazy" className="h-full w-full rounded object-cover" />
-              </button>
-              {onDelete && (
+        <div className="grid grid-cols-4 gap-1.5">
+          {items.map((it, idx) => {
+            const locked = idx < 4 && !revealed.has(it.path);
+            return (
+              <div key={it.name} className="relative">
                 <button
-                  onClick={() => onDelete(it)}
-                  aria-label="Delete"
-                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-rose-400 backdrop-blur transition hover:bg-black/90"
+                  onClick={() => (locked ? onReveal(it.path) : onTap(it))}
+                  className={`relative aspect-square w-full overflow-hidden rounded-xl ${
+                    locked
+                      ? "border border-primary/60 shadow-[0_0_18px_-6px_rgba(255,46,63,0.8)]"
+                      : "border border-white/5"
+                  }`}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <img
+                    src={it.url}
+                    alt={it.name}
+                    loading="lazy"
+                    className={`h-full w-full object-cover transition ${locked ? "scale-110 blur-[14px] brightness-[0.55]" : ""}`}
+                  />
+                  {locked && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <Lock className="h-5 w-5 text-primary drop-shadow-[0_0_8px_rgba(255,46,63,0.9)]" />
+                    </span>
+                  )}
                 </button>
-              )}
-            </div>
-          ))}
+                {onDelete && !locked && (
+                  <button
+                    onClick={() => onDelete(it)}
+                    aria-label="Delete"
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-primary backdrop-blur"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

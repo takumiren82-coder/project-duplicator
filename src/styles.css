@@ -10,11 +10,11 @@
 }
 
 @utility font-heading {
-  font-family: "Cinzel", "Sora", serif;
-  letter-spacing: 0.02em;
+  font-family: "Sora", sans-serif;
+  letter-spacing: 0;
 }
 @utility font-body {
-  font-family: "Lato", "Manrope", sans-serif;
+  font-family: "Manrope", sans-serif;
 }
 
 /*
@@ -80,32 +80,32 @@
 }
 
 :root {
-  --radius: 0.75rem;
-  /* Exact reference palette: #FF6CCF / #FF3EA8 / #A73BFF / #1B0B22 */
-  --gold: #ff3ea8;
-  --gold-bright: #ff6ccf;
-  --gold-dim: #a73bff;
-  --background: #1b0b22;
-  --foreground: #f6ecff;
-  --card: #2a1140;
-  --card-foreground: #f6ecff;
-  --popover: #22102f;
-  --popover-foreground: #f6ecff;
-  --primary: #ff3ea8;
+  --radius: 1rem;
+  /* EmberChat reference palette: ember red on near-black */
+  --gold: #ff2e3f;
+  --gold-bright: #ff5b5b;
+  --gold-dim: #a3121c;
+  --background: #07070a;
+  --foreground: #f2f2f4;
+  --card: #101013;
+  --card-foreground: #f2f2f4;
+  --popover: #101013;
+  --popover-foreground: #f2f2f4;
+  --primary: #ff2e3f;
   --primary-foreground: #ffffff;
-  --secondary: #331355;
-  --secondary-foreground: #f6ecff;
-  --muted: #2a1140;
-  --muted-foreground: #c8b3e6;
-  --accent: #a73bff;
+  --secondary: #17171b;
+  --secondary-foreground: #f2f2f4;
+  --muted: #131317;
+  --muted-foreground: #8b8b95;
+  --accent: #ff2e3f;
   --accent-foreground: #ffffff;
-  --destructive: oklch(0.6 0.22 20);
+  --destructive: #ff2e3f;
   --destructive-foreground: #ffffff;
-  --border: color-mix(in oklab, #a73bff 40%, transparent);
-  --input: color-mix(in oklab, #a73bff 30%, transparent);
-  --ring: #ff3ea8;
-  --gradient-primary: linear-gradient(135deg, #a73bff 0%, #ff3ea8 55%, #ff6ccf 100%);
-  --shadow-glow: 0 0 26px -6px color-mix(in oklab, #ff3ea8 60%, transparent);
+  --border: color-mix(in oklab, #ff2e3f 22%, transparent);
+  --input: color-mix(in oklab, #ff2e3f 18%, transparent);
+  --ring: #ff2e3f;
+  --gradient-primary: linear-gradient(135deg, #ff2e3f 0%, #ff5b5b 100%);
+  --shadow-glow: 0 0 22px -6px color-mix(in oklab, #ff2e3f 65%, transparent);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -175,31 +175,14 @@
 @layer components {
   .ornate-card {
     position: relative;
-    background: linear-gradient(160deg, #2a1250 0%, #1c0b34 100%);
-    border: 1px solid color-mix(in oklab, var(--gold) 30%, transparent);
-    border-radius: 0.75rem;
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--gold) 8%, transparent),
-      0 8px 30px -12px color-mix(in oklab, var(--gold) 45%, transparent);
+    background: #0c0c0f;
+    border: 1px solid color-mix(in oklab, var(--gold) 26%, transparent);
+    border-radius: 1rem;
+    box-shadow: 0 0 24px -14px color-mix(in oklab, var(--gold) 70%, transparent);
   }
   .ornate-card::before,
   .ornate-card::after {
-    content: "";
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    border-color: var(--gold);
-    border-style: solid;
-    pointer-events: none;
-  }
-  .ornate-card::before {
-    top: 5px;
-    left: 5px;
-    border-width: 2px 0 0 2px;
-  }
-  .ornate-card::after {
-    bottom: 5px;
-    right: 5px;
-    border-width: 0 2px 2px 0;
+    content: none;
   }
 
   .gold-btn {
@@ -207,14 +190,60 @@
     background-image: var(--gradient-primary);
     color: #ffffff;
     font-family: var(--font-heading);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     font-weight: 600;
     box-shadow: var(--shadow-glow);
     transition: all 0.2s ease;
   }
   .gold-btn:hover {
     filter: brightness(1.1);
-    box-shadow: 0 0 30px -4px color-mix(in oklab, var(--gold) 70%, transparent);
+    box-shadow: 0 0 26px -4px color-mix(in oklab, var(--gold) 75%, transparent);
+  }
+
+  /* --- EmberChat primitives --- */
+  .ember-panel {
+    background: #0c0c0f;
+    border: 1px solid color-mix(in oklab, var(--gold) 24%, transparent);
+    border-radius: 1.25rem;
+    box-shadow: 0 0 26px -16px color-mix(in oklab, var(--gold) 80%, transparent);
+  }
+  .ember-chip {
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--gold) 26%, transparent);
+    background: #101013;
+    color: #b9b9c2;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    white-space: nowrap;
+    transition: all 0.18s ease;
+  }
+  .ember-chip[data-active="true"] {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #fff;
+    box-shadow: 0 0 16px -4px color-mix(in oklab, var(--gold) 80%, transparent);
+  }
+  .ember-ring {
+    padding: 2px;
+    border-radius: 9999px;
+    background: conic-gradient(from 210deg, #ff2e3f, #ff5b5b, #7a0d16, #ff2e3f);
+    box-shadow: 0 0 14px -4px color-mix(in oklab, var(--gold) 80%, transparent);
+  }
+  .ember-ring-seen {
+    background: #2a2a30;
+    box-shadow: none;
+  }
+  .ember-ctrl {
+    display: flex;
+    height: 52px;
+    width: 52px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: #141418;
+    border: 1px solid color-mix(in oklab, #ffffff 8%, transparent);
+    color: #f2f2f4;
   }
 }
 
@@ -245,20 +274,20 @@
 }
 .animate-loading-bar { animation: loading-bar 3s ease-in-out forwards; }
 
-/* Private Hub surface — premium purple-to-black gradient (all hub screens) */
+/* Private Hub surface — EmberChat near-black with a soft ember bloom */
 .hub-chat-bg,
 .hub-screen-bg {
   background:
-    radial-gradient(120% 60% at 50% 0%, color-mix(in oklab, #a73bff 24%, transparent) 0%, transparent 55%),
-    linear-gradient(180deg, #2a1046 0%, #1b0b22 45%, #0d0518 100%);
+    radial-gradient(120% 55% at 50% 0%, color-mix(in oklab, #ff2e3f 12%, transparent) 0%, transparent 60%),
+    linear-gradient(180deg, #0b0a0d 0%, #08080a 40%, #050506 100%);
 }
 .hub-bubble-mine {
-  background-image: linear-gradient(135deg, #ff3ea8 0%, #ff6ccf 100%);
-  box-shadow: 0 6px 18px -8px color-mix(in oklab, #ff3ea8 65%, transparent);
+  background-image: linear-gradient(135deg, #ff2e3f 0%, #d31220 100%);
+  box-shadow: 0 6px 18px -10px color-mix(in oklab, #ff2e3f 75%, transparent);
 }
 .hub-bubble-theirs {
-  background: color-mix(in oklab, #2a1140 85%, #000 15%);
-  border: 1px solid color-mix(in oklab, #a73bff 22%, transparent);
+  background: #141418;
+  border: 1px solid color-mix(in oklab, #ffffff 8%, transparent);
 }
 
 /* Typing indicator — 3-dot wave */
@@ -273,4 +302,10 @@
   border-radius: 9999px;
   background: var(--gold-bright);
   animation: typing-bounce 1.2s infinite ease-in-out;
+}
+
+/* Voice-call waveform */
+@keyframes wave-pulse {
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1); }
 }
