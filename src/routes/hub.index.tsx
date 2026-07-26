@@ -1064,7 +1064,10 @@ function PrivateHub() {
                   </div>
                 )}
                 {deleted ? (
-                  <p className="italic opacity-60">🚫 This message was deleted</p>
+                  <p className={`flex items-center gap-1.5 italic ${mine ? "text-white/85" : "text-primary/90"}`}>
+                    <Flame className="h-3.5 w-3.5 shrink-0" />
+                    This ember has faded
+                  </p>
                 ) : mediaPayload ? (
                   <MediaBubble messageId={m.id} media={mediaPayload} mine={mine} />
                 ) : (
