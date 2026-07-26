@@ -336,126 +336,203 @@ export function CallOverlay({ room, myId, peerName, mode, onClose, incomingOffer
   const selfInitial = "Y"; // "You"
   const peerInitial = peerName.charAt(0).toUpperCase();
 
-  return (
-    <div className="fixed inset-0 z-[80] flex flex-col items-center justify-between bg-gradient-to-b from-[#2a1250] via-[#1a0a2e] to-black px-6 py-12 animate-fade-in">
-      <audio ref={remoteAudioRef} autoPlay playsInline />
-
+  const controls = (
+    <>
+      <button
+        onClick={toggleMute}
+        aria-label="Mute"
+        className={`ember-ctrl ${muted ? "border-primary/70 bg-primary/15 text-primary" : ""}`}
+      >
+        {muted ? <MicOff className="h-[22px] w-[22px]" /> : <Mic className="h-[22px] w-[22px]" />}
+      </button>
       {video && (
         <>
-          {/* Large view (background). Contains whichever stream is currently "big". */}
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className={`absolute inset-0 h-full w-full object-cover ${swapped ? "hidden" : ""}`}
-          />
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className={`absolute inset-0 h-full w-full -scale-x-100 object-cover ${swapped ? "" : "hidden"} ${camOff && swapped ? "invisible" : ""}`}
-          />
-          {/* When the big view is local and cam is off, show a full-screen avatar. */}
-          {swapped && camOff && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-[#2a1250] via-[#1a0a2e] to-black">
-              <div className="flex h-40 w-40 items-center justify-center rounded-full border-2 border-gold bg-secondary text-6xl font-heading text-gold shadow-[0_0_60px_-10px_rgba(214,58,249,0.7)]">
+          <button
+            onClick={toggleCam}
+            aria-label="Camera"
+            className={`ember-ctrl ${camOff ? "border-primary/70 bg-primary/15 text-primary" : ""}`}
+          >
+            {camOff ? <VideoOff className="h-[22px] w-[22px]" /> : <VideoIcon className="h-[22px] w-[22px]" />}
+          </button>
+          <button onClick={flipCamera} aria-label="Flip camera" className="ember-ctrl">
+            <SwitchCamera className="h-[22px] w-[22px]" />
+          </button>
+        </>
+      )}
+      <button
+        onClick={toggleLoud}
+        aria-label="Speaker"
+        className={`ember-ctrl ${loud ? "border-primary/70 bg-primary/15 text-primary" : ""}`}
+      >
+        {loud ? <Volume2 className="h-[22px] w-[22px]" /> : <VolumeX className="h-[22px] w-[22px]" />}
+      </button>
+      <button onClick={openNote} aria-label="Note" className="ember-ctrl">
+        <NotebookPen className="h-[22px] w-[22px]" />
+      </button>
+      <button
+        onClick={() => endCall()}
+        aria-label="End call"
+        className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-primary text-white shadow-[0_10px_26px_-8px_rgba(255,46,63,0.9)] active:scale-95"
+      >
+        <PhoneOff className="h-[22px] w-[22px]" />
+      </button>
+    </>
+  );
+
+  const noteSheet = noteOpen ? (
+    <div className="absolute inset-0 z-30 flex items-end bg-black/70 backdrop-blur-sm" onClick={() => setNoteOpen(false)}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full rounded-t-3xl border-t border-border bg-[#0c0c0f] px-5 pb-8 pt-5"
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-heading text-sm font-semibold text-foreground">Call Note</h3>
+          <button onClick={() => setNoteOpen(false)} aria-label="Close" className="text-muted-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <textarea
+          value={note}
+          onChange={(e) => saveNote(e.target.value)}
+          rows={5}
+          placeholder="Quick note while talking…"
+          className="w-full resize-none rounded-2xl border border-border bg-card px-4 py-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+        />
+        <p className="mt-2 text-[11px] text-muted-foreground">Saved automatically on this device.</p>
+      </div>
+    </div>
+  ) : null;
+
+  // ---------- Voice call ----------
+  if (!video) {
+    return (
+      <div className="animate-fade-in fixed inset-0 z-[80] flex flex-col bg-[#08080a] px-6 pb-10 pt-8">
+        <audio ref={remoteAudioRef} autoPlay playsInline />
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary font-heading text-base font-semibold text-foreground">
+            {peerInitial}
+          </span>
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate font-heading text-[17px] font-semibold text-foreground">{peerName}</span>
+            <span className="text-[12px] text-muted-foreground">{label}</span>
+          </div>
+        </div>
+
+        {/* Waveform */}
+        <div className="mt-10 flex h-16 items-center justify-center gap-[3px]">
+          {Array.from({ length: 44 }).map((_, i) => (
+            <span
+              key={i}
+              className="w-[3px] rounded-full bg-primary"
+              style={{
+                height: `${8 + Math.abs(Math.sin(i * 0.7)) * 46}px`,
+                opacity: 0.55 + Math.abs(Math.cos(i * 0.5)) * 0.45,
+                animation: `wave-pulse 1.1s ease-in-out ${i * 0.045}s infinite`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Glowing avatar */}
+        <div className="mt-8 flex justify-center">
+          <span className="flex h-[132px] w-[132px] items-center justify-center rounded-full border-2 border-primary bg-[#101013] shadow-[0_0_60px_-10px_rgba(255,46,63,0.95)]">
+            <span className="flex h-[112px] w-[112px] items-center justify-center rounded-full bg-secondary font-heading text-4xl font-semibold text-foreground">
+              {peerInitial}
+            </span>
+          </span>
+        </div>
+
+        {/* Controls */}
+        <div className="mt-auto flex flex-wrap items-center justify-center gap-5 pb-2">{controls}</div>
+        {noteSheet}
+      </div>
+    );
+  }
+
+  // ---------- Video call ----------
+  return (
+    <div className="animate-fade-in fixed inset-0 z-[80] bg-black">
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+      <video
+        ref={remoteVideoRef}
+        autoPlay
+        playsInline
+        className={`absolute inset-0 h-full w-full object-cover ${swapped ? "hidden" : ""}`}
+      />
+      <video
+        ref={localVideoRef}
+        autoPlay
+        playsInline
+        muted
+        className={`absolute inset-0 h-full w-full -scale-x-100 object-cover ${swapped ? "" : "hidden"} ${camOff && swapped ? "invisible" : ""}`}
+      />
+      {((swapped && camOff) || (!swapped && !remoteStreamRef.current)) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#08080a]">
+          <div className="flex h-36 w-36 items-center justify-center rounded-full border-2 border-primary bg-secondary font-heading text-5xl text-foreground shadow-[0_0_60px_-10px_rgba(255,46,63,0.9)]">
+            {swapped ? selfInitial : peerInitial}
+          </div>
+        </div>
+      )}
+
+      {/* Top bar */}
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-3 bg-gradient-to-b from-black/80 to-transparent px-4 pb-8 pt-5">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary font-heading text-sm font-semibold text-foreground">
+          {peerInitial}
+        </span>
+        <div className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate font-heading text-[16px] font-semibold text-foreground">{peerName}</span>
+          <span className="text-[12px] text-muted-foreground">{label}</span>
+        </div>
+      </div>
+
+      {/* Draggable PiP */}
+      <div
+        onPointerDown={onPipPointerDown}
+        onPointerMove={onPipPointerMove}
+        onPointerUp={onPipPointerUp}
+        onPointerCancel={onPipPointerUp}
+        style={{ left: pipPos.x, top: pipPos.y, touchAction: "none" }}
+        className="absolute z-20 h-40 w-28 overflow-hidden rounded-2xl border border-white/15 bg-black shadow-lg"
+      >
+        {!swapped ? (
+          camOff ? (
+            <div className="flex h-full w-full items-center justify-center bg-[#0c0c0f]">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-secondary font-heading text-2xl text-foreground">
                 {selfInitial}
               </div>
             </div>
-          )}
-          <div className="absolute inset-0 bg-black/40" />
-
-          {/* Draggable PiP (small view). Contains whichever stream is currently "small". */}
-          <div
-            onPointerDown={onPipPointerDown}
-            onPointerMove={onPipPointerMove}
-            onPointerUp={onPipPointerUp}
-            onPointerCancel={onPipPointerUp}
-            style={{ left: pipPos.x, top: pipPos.y, touchAction: "none" }}
-            className="absolute z-20 h-40 w-28 overflow-hidden rounded-2xl border border-white/20 bg-black shadow-lg"
-          >
-            {/* small = local when not swapped, remote when swapped */}
-            {!swapped ? (
-              camOff ? (
-                <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-[#2a1250] to-black">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-gold bg-secondary text-2xl font-heading text-gold">
-                    {selfInitial}
-                  </div>
-                </div>
-              ) : (
-                <video
-                  autoPlay
-                  playsInline
-                  muted
-                  className="pointer-events-none h-full w-full -scale-x-100 object-cover"
-                  ref={(el) => {
-                    if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
-                      el.srcObject = localStreamRef.current;
-                    }
-                  }}
-                />
-              )
-            ) : (
-              <video
-                autoPlay
-                playsInline
-                className="pointer-events-none h-full w-full object-cover"
-                ref={(el) => {
-                  if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
-                    el.srcObject = remoteStreamRef.current;
-                  }
-                }}
-              />
-            )}
-          </div>
-        </>
-      )}
-
-      <div className="relative z-10 flex flex-col items-center gap-4 pt-10">
-        {(!video || (!swapped && camOff)) && (
-          <div className="flex h-28 w-28 items-center justify-center rounded-full border-2 border-gold bg-secondary text-4xl font-heading text-gold shadow-[0_0_60px_-10px_rgba(214,58,249,0.7)]">
-            {peerInitial}
-          </div>
+          ) : (
+            <video
+              autoPlay
+              playsInline
+              muted
+              className="pointer-events-none h-full w-full -scale-x-100 object-cover"
+              ref={(el) => {
+                if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
+                  el.srcObject = localStreamRef.current;
+                }
+              }}
+            />
+          )
+        ) : (
+          <video
+            autoPlay
+            playsInline
+            className="pointer-events-none h-full w-full object-cover"
+            ref={(el) => {
+              if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
+                el.srcObject = remoteStreamRef.current;
+              }
+            }}
+          />
         )}
-        <span className="font-heading text-xl font-semibold tracking-wide text-foreground">{peerName}</span>
-        <span className="text-sm tracking-wide text-muted-foreground">{label}</span>
       </div>
 
-      <div className="relative z-10 flex items-center gap-5 pb-6">
-        <button
-          onClick={toggleMute}
-          aria-label="Mute"
-          className={`flex h-14 w-14 items-center justify-center rounded-full border ${muted ? "border-red-400 bg-red-500/20 text-red-300" : "border-border/60 bg-card/60 text-foreground"}`}
-        >
-          {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-        </button>
-        {video && (
-          <>
-            <button
-              onClick={toggleCam}
-              aria-label="Toggle camera"
-              className={`flex h-14 w-14 items-center justify-center rounded-full border ${camOff ? "border-red-400 bg-red-500/20 text-red-300" : "border-border/60 bg-card/60 text-foreground"}`}
-            >
-              {camOff ? <VideoOff className="h-6 w-6" /> : <VideoIcon className="h-6 w-6" />}
-            </button>
-            <button
-              onClick={flipCamera}
-              aria-label="Flip camera"
-              className="flex h-14 w-14 items-center justify-center rounded-full border border-border/60 bg-card/60 text-foreground"
-            >
-              <SwitchCamera className="h-6 w-6" />
-            </button>
-          </>
-        )}
-        <button
-          onClick={() => endCall()}
-          aria-label="End call"
-          className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/40 active:scale-95"
-        >
-          <PhoneOff className="h-7 w-7" />
-        </button>
+      {/* Controls */}
+      <div className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-center gap-4 bg-gradient-to-t from-black/85 to-transparent px-4 pb-8 pt-10">
+        {controls}
       </div>
+      {noteSheet}
     </div>
   );
 }
