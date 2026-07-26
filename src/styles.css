@@ -175,31 +175,14 @@
 @layer components {
   .ornate-card {
     position: relative;
-    background: linear-gradient(160deg, #2a1250 0%, #1c0b34 100%);
-    border: 1px solid color-mix(in oklab, var(--gold) 30%, transparent);
-    border-radius: 0.75rem;
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--gold) 8%, transparent),
-      0 8px 30px -12px color-mix(in oklab, var(--gold) 45%, transparent);
+    background: #0c0c0f;
+    border: 1px solid color-mix(in oklab, var(--gold) 26%, transparent);
+    border-radius: 1rem;
+    box-shadow: 0 0 24px -14px color-mix(in oklab, var(--gold) 70%, transparent);
   }
   .ornate-card::before,
   .ornate-card::after {
-    content: "";
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    border-color: var(--gold);
-    border-style: solid;
-    pointer-events: none;
-  }
-  .ornate-card::before {
-    top: 5px;
-    left: 5px;
-    border-width: 2px 0 0 2px;
-  }
-  .ornate-card::after {
-    bottom: 5px;
-    right: 5px;
-    border-width: 0 2px 2px 0;
+    content: none;
   }
 
   .gold-btn {
@@ -207,14 +190,60 @@
     background-image: var(--gradient-primary);
     color: #ffffff;
     font-family: var(--font-heading);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     font-weight: 600;
     box-shadow: var(--shadow-glow);
     transition: all 0.2s ease;
   }
   .gold-btn:hover {
     filter: brightness(1.1);
-    box-shadow: 0 0 30px -4px color-mix(in oklab, var(--gold) 70%, transparent);
+    box-shadow: 0 0 26px -4px color-mix(in oklab, var(--gold) 75%, transparent);
+  }
+
+  /* --- EmberChat primitives --- */
+  .ember-panel {
+    background: #0c0c0f;
+    border: 1px solid color-mix(in oklab, var(--gold) 24%, transparent);
+    border-radius: 1.25rem;
+    box-shadow: 0 0 26px -16px color-mix(in oklab, var(--gold) 80%, transparent);
+  }
+  .ember-chip {
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--gold) 26%, transparent);
+    background: #101013;
+    color: #b9b9c2;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    white-space: nowrap;
+    transition: all 0.18s ease;
+  }
+  .ember-chip[data-active="true"] {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #fff;
+    box-shadow: 0 0 16px -4px color-mix(in oklab, var(--gold) 80%, transparent);
+  }
+  .ember-ring {
+    padding: 2px;
+    border-radius: 9999px;
+    background: conic-gradient(from 210deg, #ff2e3f, #ff5b5b, #7a0d16, #ff2e3f);
+    box-shadow: 0 0 14px -4px color-mix(in oklab, var(--gold) 80%, transparent);
+  }
+  .ember-ring-seen {
+    background: #2a2a30;
+    box-shadow: none;
+  }
+  .ember-ctrl {
+    display: flex;
+    height: 52px;
+    width: 52px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: #141418;
+    border: 1px solid color-mix(in oklab, #ffffff 8%, transparent);
+    color: #f2f2f4;
   }
 }
 
